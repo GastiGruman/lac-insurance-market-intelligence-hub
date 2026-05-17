@@ -11,34 +11,45 @@ __pycache__/
 # Streamlit secrets
 .streamlit/secrets.toml
 
-# Raw / processed / local database data
+# Keep Streamlit config
+!.streamlit/config.toml
+
+# Raw / processed data should not be uploaded
 data/raw/
 data/processed/
-data/database/
 Data/raw/
 Data/processed/
-Data/database/
 
-# DuckDB files
+# Allow only the demo DuckDB database for Streamlit Cloud
+data/database/*
+!data/database/insurance_market.duckdb
+
+Data/database/*
+!Data/database/insurance_market.duckdb
+
+# Ignore DuckDB files by default
 *.duckdb
 *.duckdb.wal
 *.wal
+
+# But allow the specific demo database
+!data/database/insurance_market.duckdb
+!Data/database/insurance_market.duckdb
 
 # Generated outputs
 outputs/
 Outputs/
 
-# Local app backups
-*.bak_*
-*_backup_*
-
 # Environment variables
 .env
+
+# Local backups / temporary files
+*_backup_*
+*.bak
+*.bak_*
+*.tmp
+*.log
 
 # OS files
 .DS_Store
 Thumbs.db
-
-# Temporary files
-*.tmp
-*.log
