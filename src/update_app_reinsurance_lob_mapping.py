@@ -251,7 +251,7 @@ with tab_reinsurance:
             }
         )
 
-        st.plotly_chart(fig_ceded_lob, use_container_width=True)
+        st.plotly_chart(fig_ceded_lob, width="stretch")
 
         col_1, col_2 = st.columns(2)
 
@@ -272,7 +272,7 @@ with tab_reinsurance:
             )
 
             fig_cession_ratio.update_yaxes(tickformat=".1%")
-            st.plotly_chart(fig_cession_ratio, use_container_width=True)
+            st.plotly_chart(fig_cession_ratio, width="stretch")
 
         with col_2:
             retained_chart = lob_summary[
@@ -291,7 +291,7 @@ with tab_reinsurance:
             )
 
             fig_retention_ratio.update_yaxes(tickformat=".1%")
-            st.plotly_chart(fig_retention_ratio, use_container_width=True)
+            st.plotly_chart(fig_retention_ratio, width="stretch")
 
         st.markdown("### Top compañías por prima cedida")
 
@@ -329,7 +329,7 @@ with tab_reinsurance:
             }
         )
 
-        st.plotly_chart(fig_company_ceded, use_container_width=True)
+        st.plotly_chart(fig_company_ceded, width="stretch")
 
         st.markdown("### Tabla resumen por ramo")
 
@@ -356,7 +356,7 @@ with tab_reinsurance:
                     "paid_claims_ratio"
                 ]
             ],
-            use_container_width=True
+            width="stretch"
         )
 
         st.markdown("### Validación de Indicadores de Gestión 2025")
@@ -373,10 +373,10 @@ with tab_reinsurance:
             col_v1, col_v2 = st.columns([1, 2])
 
             with col_v1:
-                st.dataframe(validation_counts_re, use_container_width=True)
+                st.dataframe(validation_counts_re, width="stretch")
 
             with col_v2:
-                st.dataframe(indicadores_validation_df, use_container_width=True)
+                st.dataframe(indicadores_validation_df, width="stretch")
 
         st.warning(
             "Metodología: esta vista usa Fasecolda - Indicadores de Gestión 2025. "

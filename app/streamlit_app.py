@@ -6,6 +6,7 @@ from pathlib import Path
 from datetime import datetime
 import unicodedata
 import sys
+import os
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -68,6 +69,7 @@ INDICADORES_VALIDATION_REPORT_PATH = Path("outputs/indicadores_gestion_2025_vali
 INDICADORES_VALIDATION_FLAGS_PATH = Path("outputs/indicadores_gestion_2025_flags.csv")
 CORE_MARKET_SOURCE = "FASECOLDA - CIUDADES Y RAMOS"
 CORE_SOURCE_VALUE_MULTIPLIER = 1_000
+DEBUG_MODE = os.getenv("STREAMLIT_DEBUG", "").strip().lower() in {"1", "true", "yes", "debug"}
 
 # ============================================================
 # FUNCIONES DE CARGA
@@ -75,13 +77,42 @@ CORE_SOURCE_VALUE_MULTIPLIER = 1_000
 
 @st.cache_data
 def load_market_core():
-    conn = duckdb.connect(str(DB_PATH))
-    df = conn.execute("""
-        SELECT *
-        FROM fact_market_core
-    """).fetchdf()
-    conn.close()
-    return df
+    if not DB_PATH.exists():
+        return pd.DataFrame()
+
+    conn = duckdb.connect(str(DB_PATH), read_only=True)
+    try:
+        return conn.execute("""
+            WITH latest_months AS (
+                SELECT country, source, year, MAX(month) AS month
+                FROM fact_market_core
+                GROUP BY country, source, year
+            )
+            SELECT f.*
+            FROM fact_market_core f
+            INNER JOIN latest_months lm
+                ON f.country = lm.country
+               AND f.source = lm.source
+               AND f.year = lm.year
+               AND f.month = lm.month
+        """).fetchdf()
+    finally:
+        conn.close()
+
+
+@st.cache_data
+def load_market_core_all_periods():
+    if not DB_PATH.exists():
+        return pd.DataFrame()
+
+    conn = duckdb.connect(str(DB_PATH), read_only=True)
+    try:
+        return conn.execute("""
+            SELECT *
+            FROM fact_market_core
+        """).fetchdf()
+    finally:
+        conn.close()
 
 
 @st.cache_data
@@ -94,13 +125,17 @@ def load_validation_report():
 @st.cache_data
 def load_indicadores_gestion_2025():
     try:
-        conn = duckdb.connect(str(DB_PATH))
-        df = conn.execute("""
-            SELECT *
-            FROM fact_indicadores_gestion_2025
-        """).fetchdf()
-        conn.close()
-        return df
+        if not DB_PATH.exists():
+            return pd.DataFrame()
+
+        conn = duckdb.connect(str(DB_PATH), read_only=True)
+        try:
+            return conn.execute("""
+                SELECT *
+                FROM fact_indicadores_gestion_2025
+            """).fetchdf()
+        finally:
+            conn.close()
     except Exception:
         return pd.DataFrame()
 
@@ -132,13 +167,17 @@ def load_indicadores_gestion_validation_flags():
 @st.cache_data
 def load_lob_mapping():
     try:
-        conn = duckdb.connect(str(DB_PATH))
-        df = conn.execute("""
-            SELECT *
-            FROM dim_line_of_business_mapping
-        """).fetchdf()
-        conn.close()
-        return df
+        if not DB_PATH.exists():
+            return pd.DataFrame()
+
+        conn = duckdb.connect(str(DB_PATH), read_only=True)
+        try:
+            return conn.execute("""
+                SELECT *
+                FROM dim_line_of_business_mapping
+            """).fetchdf()
+        finally:
+            conn.close()
     except Exception:
         return pd.DataFrame()
 
@@ -146,13 +185,17 @@ def load_lob_mapping():
 @st.cache_data
 def load_company_mapping():
     try:
-        conn = duckdb.connect(str(DB_PATH))
-        df = conn.execute("""
-            SELECT *
-            FROM dim_company_mapping
-        """).fetchdf()
-        conn.close()
-        return df
+        if not DB_PATH.exists():
+            return pd.DataFrame()
+
+        conn = duckdb.connect(str(DB_PATH), read_only=True)
+        try:
+            return conn.execute("""
+                SELECT *
+                FROM dim_company_mapping
+            """).fetchdf()
+        finally:
+            conn.close()
     except Exception:
         return pd.DataFrame()
 
@@ -177,6 +220,17 @@ def format_percentage(value):
     if pd.isna(value):
         return "N/A"
     return f"{value:.1%}"
+
+
+def render_section_error(error):
+    st.error("This section could not be loaded. Please adjust the filters or try again.")
+    if DEBUG_MODE:
+        st.exception(error)
+
+
+def warn_and_stop(message):
+    st.warning(message)
+    st.stop()
 
 
 def normalize_core_market_units(data):
@@ -647,19 +701,22 @@ def map_company_using_mapping_table(selected_company, target_source, country="CO
 # ============================================================
 
 df = load_market_core()
-validation_df = load_validation_report()
-indicadores_df = load_indicadores_gestion_2025()
-indicadores_validation_df = load_indicadores_gestion_validation()
-indicadores_validation_flags_df = load_indicadores_gestion_validation_flags()
 lob_mapping_df = load_lob_mapping()
 company_mapping_df = load_company_mapping()
+
+if df.empty:
+    st.error(
+        "Data not available. The demo database could not be loaded. "
+        "Please confirm that data/database/insurance_market.duckdb exists."
+    )
+    st.stop()
 
 df["period_date"] = pd.to_datetime(df["period_date"], errors="coerce")
 df["year"] = df["year"].astype(int)
 df["month"] = df["month"].astype(int)
 df["metric_value"] = pd.to_numeric(df["metric_value"], errors="coerce")
 df = normalize_core_market_units(df)
-analysis_df = latest_market_snapshot_by_year(df)
+analysis_df = df.copy()
 
 last_update = df["period_date"].max()
 analysis_last_update = analysis_df["period_date"].max()
@@ -689,21 +746,29 @@ st.sidebar.caption("Use the top tabs to move between market dashboard, company b
 render_sidebar_label("Market scope")
 
 country_options = sorted(analysis_df["country"].dropna().unique())
+if not country_options:
+    warn_and_stop("Data not available for the selected source.")
+
 selected_country = st.sidebar.selectbox(
     "Country",
     country_options,
     index=0
 )
 
-country_df_all_periods = df[df["country"] == selected_country]
 country_df = analysis_df[analysis_df["country"] == selected_country]
 
 years = sorted(country_df["year"].dropna().unique())
+if not years:
+    warn_and_stop("Data not available for the selected country.")
+
 selected_years = st.sidebar.multiselect(
     "Years",
     years,
     default=years
 )
+
+if not selected_years:
+    warn_and_stop("Please select at least one year to continue.")
 
 render_sidebar_label("Portfolio filters")
 
@@ -761,6 +826,11 @@ if selected_line != "TODOS":
 if selected_city != "TODAS":
     filtered_df = filtered_df[filtered_df["city"] == selected_city]
 
+if filtered_df.empty:
+    warn_and_stop(
+        "Data not available for the selected filters. Please adjust the company, line of business, city, or year selection."
+    )
+
 premium_df = filtered_df[filtered_df["metric_name"] == "gross_written_premium"]
 claims_df = filtered_df[filtered_df["metric_name"] == "claims"]
 
@@ -795,30 +865,36 @@ st.caption(
 st.divider()
 
 # ============================================================
-# TABS
+# LAZY NAVIGATION
 # ============================================================
 
-tab_market, tab_company, tab_line, tab_brief, tab_ai, tab_news, tab_signals, tab_reinsurance, tab_status, tab_reports, tab_data = st.tabs(
-    [
-        "Market Overview",
-        "Company Explorer",
-        "Line of Business Explorer",
-        "Company Brief",
-        "AI Brief",
-        "News",
-        "Technical Signals",
-        "Reinsurance View",
-        "Data Status",
-        "Reports / Export",
-        "Data Table"
-    ]
+PAGE_OPTIONS = [
+    "Market Overview",
+    "Company Explorer",
+    "Line of Business Explorer",
+    "Company Brief",
+    "AI Brief",
+    "News",
+    "Technical Signals",
+    "Reinsurance View",
+    "Data Status",
+    "Reports / Export",
+    "Data Table",
+]
+
+selected_view = st.radio(
+    "Navigation",
+    PAGE_OPTIONS,
+    horizontal=True,
+    label_visibility="collapsed",
+    key="main_navigation",
 )
 
 # ============================================================
 # TAB 1 — MARKET OVERVIEW
 # ============================================================
 
-with tab_market:
+if selected_view == "Market Overview":
     render_section_header(
         "Executive Market Dashboard",
         "A broker-focused view of premiums, claims, loss ratio, market movement, and portfolio concentration under the selected filters.",
@@ -864,7 +940,7 @@ with tab_market:
     )
 
     fix_year_axis(fig_year, year_summary["year"].unique())
-    st.plotly_chart(fig_year, use_container_width=True)
+    st.plotly_chart(fig_year, width="stretch")
 
     yearly_lr = prepare_premium_claims_summary(filtered_df, ["year"])
     yearly_lr["premium_growth"] = yearly_lr["primas"].pct_change()
@@ -888,7 +964,7 @@ with tab_market:
 
         fix_year_axis(fig_lr, yearly_lr["year"].unique())
         fig_lr.update_yaxes(tickformat=".1%")
-        st.plotly_chart(fig_lr, use_container_width=True)
+        st.plotly_chart(fig_lr, width="stretch")
 
     with col_b:
         fig_growth = px.bar(
@@ -904,14 +980,14 @@ with tab_market:
 
         fix_year_axis(fig_growth, yearly_lr["year"].unique())
         fig_growth.update_yaxes(tickformat=".1%")
-        st.plotly_chart(fig_growth, use_container_width=True)
+        st.plotly_chart(fig_growth, width="stretch")
 
     st.subheader("Resumen anual")
 
     yearly_display = make_display_summary(yearly_lr)
     st.dataframe(
         yearly_display[["year", "primas", "siniestros", "siniestralidad", "premium_growth"]],
-        use_container_width=True
+        width="stretch"
     )
 
     st.subheader("Ranking de mercado")
@@ -940,7 +1016,7 @@ with tab_market:
             }
         )
 
-        st.plotly_chart(fig_company, use_container_width=True)
+        st.plotly_chart(fig_company, width="stretch")
 
     with col_d:
         premium_by_line = (
@@ -964,7 +1040,7 @@ with tab_market:
             }
         )
 
-        st.plotly_chart(fig_line, use_container_width=True)
+        st.plotly_chart(fig_line, width="stretch")
 
     st.subheader("Market share por compañía")
 
@@ -991,7 +1067,7 @@ with tab_market:
         )
 
         fig_share.update_yaxes(tickformat=".1%")
-        st.plotly_chart(fig_share, use_container_width=True)
+        st.plotly_chart(fig_share, width="stretch")
     else:
         st.info("No hay primas suficientes para calcular market share.")
 
@@ -999,7 +1075,7 @@ with tab_market:
 # TAB 2 — COMPANY EXPLORER
 # ============================================================
 
-with tab_company:
+if selected_view == "Company Explorer":
     st.subheader("Company Explorer")
     st.caption("Análisis específico de una aseguradora.")
 
@@ -1045,7 +1121,7 @@ with tab_company:
             )
 
             fix_year_axis(fig_company_premium, company_summary["year"].unique())
-            st.plotly_chart(fig_company_premium, use_container_width=True)
+            st.plotly_chart(fig_company_premium, width="stretch")
 
         with col_b:
             fig_company_lr = px.line(
@@ -1062,7 +1138,7 @@ with tab_company:
 
             fix_year_axis(fig_company_lr, company_summary["year"].unique())
             fig_company_lr.update_yaxes(tickformat=".1%")
-            st.plotly_chart(fig_company_lr, use_container_width=True)
+            st.plotly_chart(fig_company_lr, width="stretch")
 
         st.subheader("Principales ramos de la compañía")
 
@@ -1089,21 +1165,21 @@ with tab_company:
             }
         )
 
-        st.plotly_chart(fig_company_line, use_container_width=True)
+        st.plotly_chart(fig_company_line, width="stretch")
 
         st.subheader("Resumen anual de la compañía")
 
         company_display = make_display_summary(company_summary)
         st.dataframe(
             company_display[["year", "primas", "siniestros", "siniestralidad", "premium_growth"]],
-            use_container_width=True
+            width="stretch"
         )
 
 # ============================================================
 # TAB 3 — LINE OF BUSINESS EXPLORER
 # ============================================================
 
-with tab_line:
+if selected_view == "Line of Business Explorer":
     st.subheader("Line of Business Explorer")
     st.caption("Análisis específico de un ramo.")
 
@@ -1133,7 +1209,7 @@ with tab_line:
             )
 
             fix_year_axis(fig_line_premium, line_summary["year"].unique())
-            st.plotly_chart(fig_line_premium, use_container_width=True)
+            st.plotly_chart(fig_line_premium, width="stretch")
 
         with col_b:
             fig_line_lr = px.line(
@@ -1150,7 +1226,7 @@ with tab_line:
 
             fix_year_axis(fig_line_lr, line_summary["year"].unique())
             fig_line_lr.update_yaxes(tickformat=".1%")
-            st.plotly_chart(fig_line_lr, use_container_width=True)
+            st.plotly_chart(fig_line_lr, width="stretch")
 
         st.subheader("Top compañías dentro del ramo")
 
@@ -1177,7 +1253,7 @@ with tab_line:
             }
         )
 
-        st.plotly_chart(fig_line_company, use_container_width=True)
+        st.plotly_chart(fig_line_company, width="stretch")
 
         st.subheader("Siniestralidad por compañía en el ramo")
 
@@ -1200,7 +1276,7 @@ with tab_line:
             )
 
             fig_line_company_lr.update_yaxes(tickformat=".1%")
-            st.plotly_chart(fig_line_company_lr, use_container_width=True)
+            st.plotly_chart(fig_line_company_lr, width="stretch")
         else:
             st.info("No hay compañías que superen el umbral mínimo de primas seleccionado.")
 
@@ -1209,14 +1285,16 @@ with tab_line:
         line_display = make_display_summary(line_summary)
         st.dataframe(
             line_display[["year", "primas", "siniestros", "siniestralidad", "premium_growth"]],
-            use_container_width=True
+            width="stretch"
         )
 
 # ============================================================
 # TAB 4 — COMPANY BRIEF
 # ============================================================
 
-with tab_brief:
+if selected_view == "Company Brief":
+    indicadores_df = load_indicadores_gestion_2025()
+
     render_section_header(
         "Executive Broker Briefing",
         "Structured meeting preparation generated from the selected filters and public structured market data.",
@@ -1252,24 +1330,28 @@ with tab_brief:
                 country=selected_country
             )
 
-        company_reinsurance_wide = build_reinsurance_wide(
-            indicadores_df,
-            selected_country,
-            company=mapped_company_for_re,
-            line=mapped_line_for_re,
-        )
-        company_reinsurance_summary = summarize_reinsurance(company_reinsurance_wide)
+        try:
+            company_reinsurance_wide = build_reinsurance_wide(
+                indicadores_df,
+                selected_country,
+                company=mapped_company_for_re,
+                line=mapped_line_for_re,
+            )
+            company_reinsurance_summary = summarize_reinsurance(company_reinsurance_wide)
 
-        brief = build_company_brief(
-            country=selected_country,
-            company=selected_company,
-            selected_line=selected_line,
-            selected_years=selected_years,
-            company_df=company_df,
-            market_df=market_reference_df,
-            reinsurance_summary=company_reinsurance_summary,
-            minimum_premium=minimum_premium,
-        )
+            brief = build_company_brief(
+                country=selected_country,
+                company=selected_company,
+                selected_line=selected_line,
+                selected_years=selected_years,
+                company_df=company_df,
+                market_df=market_reference_df,
+                reinsurance_summary=company_reinsurance_summary,
+                minimum_premium=minimum_premium,
+            )
+        except Exception as exc:
+            render_section_error(exc)
+            st.stop()
 
         col_a, col_b = st.columns([2, 1])
 
@@ -1294,7 +1376,7 @@ with tab_brief:
                             "premium_growth_display",
                         ]
                     ],
-                    use_container_width=True
+                    width="stretch"
                 )
 
             render_section_header("Market Position", "Company premium relative to the selected market reference.")
@@ -1307,7 +1389,7 @@ with tab_brief:
                     market_share_display[
                         ["year", "company_premium", "market_premium", "market_share_display"]
                     ],
-                    use_container_width=True
+                    width="stretch"
                 )
 
             render_section_header("Portfolio Mix", "Largest lines of business by premium.")
@@ -1320,7 +1402,7 @@ with tab_brief:
                     main_lines_display[
                         ["line_of_business_standard", "gross_written_premium_display"]
                     ],
-                    use_container_width=True
+                    width="stretch"
                 )
 
             render_section_header("Growth Signals", "Fastest growing lines under the current premium threshold.")
@@ -1334,7 +1416,7 @@ with tab_brief:
                     fastest_display[
                         ["line_of_business_standard", "year", "primas_display", "premium_growth_display"]
                     ],
-                    use_container_width=True
+                    width="stretch"
                 )
 
             render_section_header("Loss Ratio Watch", "Lines with deteriorating technical performance.")
@@ -1353,7 +1435,7 @@ with tab_brief:
                             "loss_ratio_change_display",
                         ]
                     ],
-                    use_container_width=True
+                    width="stretch"
                 )
 
             render_section_header("Reinsurance Indicators", "Exploratory indicators from Indicadores de Gestión when available.")
@@ -1427,7 +1509,7 @@ with tab_brief:
                     labels={"year": "Year", "primas_mm": "Premiums in COP MM"},
                 )
                 fix_year_axis(fig_one_pager_premium, chart_data["year"].unique())
-                st.plotly_chart(fig_one_pager_premium, use_container_width=True)
+                st.plotly_chart(fig_one_pager_premium, width="stretch")
 
         with chart_col_b:
             if not brief["main_lines"].empty:
@@ -1443,7 +1525,7 @@ with tab_brief:
                         "premium_mm": "Premiums in COP MM",
                     },
                 )
-                st.plotly_chart(fig_one_pager_lines, use_container_width=True)
+                st.plotly_chart(fig_one_pager_lines, width="stretch")
 
         with st.expander("Preview one-pager markdown", expanded=False):
             st.code(one_pager_markdown, language="markdown")
@@ -1486,7 +1568,9 @@ with tab_brief:
 # TAB 5 — AI BRIEF
 # ============================================================
 
-with tab_ai:
+if selected_view == "AI Brief":
+    indicadores_df = load_indicadores_gestion_2025()
+
     st.subheader("AI Brief")
     st.caption(
         "Optional controlled AI layer. It uses only structured data retrieved from DuckDB "
@@ -1576,19 +1660,23 @@ with tab_ai:
             country=selected_country,
         )
 
-    ai_context = build_structured_ai_context(
-        country=selected_country,
-        company=ai_company,
-        selected_line=ai_line,
-        selected_years=ai_years,
-        meeting_purpose=meeting_purpose,
-        company_df=ai_company_df,
-        market_df=ai_market_df,
-        indicadores_df=indicadores_df,
-        mapped_company=ai_mapped_company,
-        mapped_line=ai_mapped_line,
-        minimum_premium=minimum_premium,
-    )
+    try:
+        ai_context = build_structured_ai_context(
+            country=selected_country,
+            company=ai_company,
+            selected_line=ai_line,
+            selected_years=ai_years,
+            meeting_purpose=meeting_purpose,
+            company_df=ai_company_df,
+            market_df=ai_market_df,
+            indicadores_df=indicadores_df,
+            mapped_company=ai_mapped_company,
+            mapped_line=ai_mapped_line,
+            minimum_premium=minimum_premium,
+        )
+    except Exception as exc:
+        render_section_error(exc)
+        st.stop()
 
     st.markdown("### Structured data context")
     with st.expander("View context sent to AI", expanded=False):
@@ -1670,7 +1758,7 @@ with tab_ai:
 # TAB 6 — NEWS
 # ============================================================
 
-with tab_news:
+if selected_view == "News":
     st.subheader("News")
     st.caption(
         "Optional source-based company and market news for broker meeting preparation."
@@ -1836,19 +1924,25 @@ with tab_news:
 # TAB 7 — TECHNICAL SIGNALS
 # ============================================================
 
-with tab_signals:
+if selected_view == "Technical Signals":
+    indicadores_df = load_indicadores_gestion_2025()
+
     st.subheader("Technical Signals")
     st.caption("Broker-focused signals for market monitoring and meeting preparation.")
 
     latest_year = max(selected_years) if selected_years else country_df["year"].max()
 
-    technical_signals_df = build_technical_signals(
-        market_df=filtered_df,
-        indicadores_df=indicadores_df,
-        country=selected_country,
-        latest_year=latest_year,
-        minimum_premium=minimum_premium,
-    )
+    try:
+        technical_signals_df = build_technical_signals(
+            market_df=filtered_df,
+            indicadores_df=indicadores_df,
+            country=selected_country,
+            latest_year=latest_year,
+            minimum_premium=minimum_premium,
+        )
+    except Exception as exc:
+        render_section_error(exc)
+        st.stop()
 
     st.markdown("### Broker-relevant signal table")
 
@@ -1877,7 +1971,7 @@ with tab_signals:
                     "source",
                 ]
             ],
-            use_container_width=True,
+            width="stretch",
         )
 
         watchlist_display = signal_display[signal_display["signal_type"] == "Broker watchlist"]
@@ -1894,7 +1988,7 @@ with tab_signals:
                         "source",
                     ]
                 ].head(20),
-                use_container_width=True,
+                width="stretch",
             )
 
         signals_csv = technical_signals_df.to_csv(index=False, encoding="utf-8-sig")
@@ -1935,7 +2029,7 @@ with tab_signals:
         )
 
         fig_top_growth.update_yaxes(tickformat=".1%")
-        st.plotly_chart(fig_top_growth, use_container_width=True)
+        st.plotly_chart(fig_top_growth, width="stretch")
     else:
         st.info("No hay datos suficientes para mostrar crecimiento con el umbral seleccionado.")
 
@@ -1963,7 +2057,7 @@ with tab_signals:
             )
 
             fig_company_high_lr.update_yaxes(tickformat=".1%")
-            st.plotly_chart(fig_company_high_lr, use_container_width=True)
+            st.plotly_chart(fig_company_high_lr, width="stretch")
         else:
             st.info("No hay compañías que superen el umbral mínimo de primas seleccionado.")
 
@@ -1989,7 +2083,7 @@ with tab_signals:
             )
 
             fig_line_high_lr.update_yaxes(tickformat=".1%")
-            st.plotly_chart(fig_line_high_lr, use_container_width=True)
+            st.plotly_chart(fig_line_high_lr, width="stretch")
         else:
             st.info("No hay ramos que superen el umbral mínimo de primas seleccionado.")
 
@@ -2022,7 +2116,7 @@ with tab_signals:
         )
 
         fig_line_growth.update_yaxes(tickformat=".1%")
-        st.plotly_chart(fig_line_growth, use_container_width=True)
+        st.plotly_chart(fig_line_growth, width="stretch")
     else:
         st.info("No hay datos suficientes para mostrar crecimiento por ramo con el umbral seleccionado.")
 
@@ -2036,7 +2130,11 @@ with tab_signals:
 # TAB 6 — REINSURANCE VIEW
 # ============================================================
 
-with tab_reinsurance:
+if selected_view == "Reinsurance View":
+    indicadores_df = load_indicadores_gestion_2025()
+    indicadores_validation_df = load_indicadores_gestion_validation()
+    indicadores_validation_flags_df = load_indicadores_gestion_validation_flags()
+
     st.subheader("Reinsurance View")
     st.caption(
         "Vista exploratoria basada en Fasecolda - Indicadores de Gestión 2025. "
@@ -2168,6 +2266,13 @@ with tab_reinsurance:
                 "La Reinsurance View no aplica el filtro de ciudad."
             )
 
+        if re_df.empty:
+            st.warning(
+                "Data not available for the selected reinsurance filters. "
+                "Please adjust the company or line of business selection."
+            )
+            st.stop()
+
         # Pasar a formato ancho para calcular KPIs correctamente
         group_cols_re = [
             "country",
@@ -2276,7 +2381,7 @@ with tab_reinsurance:
             }
         )
 
-        st.plotly_chart(fig_ceded_lob, use_container_width=True)
+        st.plotly_chart(fig_ceded_lob, width="stretch")
 
         col_1, col_2 = st.columns(2)
 
@@ -2297,7 +2402,7 @@ with tab_reinsurance:
             )
 
             fig_cession_ratio.update_yaxes(tickformat=".1%")
-            st.plotly_chart(fig_cession_ratio, use_container_width=True)
+            st.plotly_chart(fig_cession_ratio, width="stretch")
 
         with col_2:
             retained_chart = lob_summary[
@@ -2316,7 +2421,7 @@ with tab_reinsurance:
             )
 
             fig_retention_ratio.update_yaxes(tickformat=".1%")
-            st.plotly_chart(fig_retention_ratio, use_container_width=True)
+            st.plotly_chart(fig_retention_ratio, width="stretch")
 
         st.markdown("### Top compañías por prima cedida")
 
@@ -2354,7 +2459,7 @@ with tab_reinsurance:
             }
         )
 
-        st.plotly_chart(fig_company_ceded, use_container_width=True)
+        st.plotly_chart(fig_company_ceded, width="stretch")
 
         st.markdown("### Tabla resumen por ramo")
 
@@ -2381,7 +2486,7 @@ with tab_reinsurance:
                     "paid_claims_ratio"
                 ]
             ],
-            use_container_width=True
+            width="stretch"
         )
 
         st.markdown("### Validación de Indicadores de Gestión 2025")
@@ -2398,10 +2503,10 @@ with tab_reinsurance:
             col_v1, col_v2 = st.columns([1, 2])
 
             with col_v1:
-                st.dataframe(validation_counts_re, use_container_width=True)
+                st.dataframe(validation_counts_re, width="stretch")
 
             with col_v2:
-                st.dataframe(indicadores_validation_df, use_container_width=True)
+                st.dataframe(indicadores_validation_df, width="stretch")
 
         if indicadores_validation_flags_df.empty:
             st.info(
@@ -2424,7 +2529,7 @@ with tab_reinsurance:
                 .sort_values(["severity", "records"], ascending=[True, False])
             )
 
-            st.dataframe(flag_counts, use_container_width=True)
+            st.dataframe(flag_counts, width="stretch")
 
         st.warning(
             "Metodología: esta vista usa Fasecolda - Indicadores de Gestión 2025. "
@@ -2438,13 +2543,27 @@ with tab_reinsurance:
 # TAB 7 — DATA STATUS
 # ============================================================
 
-with tab_status:
+if selected_view == "Data Status":
+    validation_df = load_validation_report()
+    indicadores_df = load_indicadores_gestion_2025()
+    indicadores_validation_df = load_indicadores_gestion_validation()
+    indicadores_validation_flags_df = load_indicadores_gestion_validation_flags()
+
     render_section_header(
         "Data Governance Status",
         "Coverage, traceability, mapping readiness and validation warnings for the selected country module.",
     )
 
-    status_country_df = country_df_all_periods
+    status_all_periods_df = load_market_core_all_periods()
+    if status_all_periods_df.empty:
+        status_country_df = country_df.copy()
+    else:
+        status_all_periods_df["period_date"] = pd.to_datetime(status_all_periods_df["period_date"], errors="coerce")
+        status_all_periods_df["year"] = status_all_periods_df["year"].astype(int)
+        status_all_periods_df["month"] = status_all_periods_df["month"].astype(int)
+        status_all_periods_df["metric_value"] = pd.to_numeric(status_all_periods_df["metric_value"], errors="coerce")
+        status_all_periods_df = normalize_core_market_units(status_all_periods_df)
+        status_country_df = status_all_periods_df[status_all_periods_df["country"] == selected_country].copy()
     total_rows = len(status_country_df)
     total_companies = status_country_df["company_standard"].nunique()
     total_lines = status_country_df["line_of_business_standard"].nunique()
@@ -2528,7 +2647,7 @@ with tab_status:
                 ignore_index=True
             )
 
-    st.dataframe(source_summary, use_container_width=True)
+    st.dataframe(source_summary, width="stretch")
 
     st.info(
         "La fuente principal del core regional es Fasecolda - Ciudades y Ramos. "
@@ -2590,7 +2709,7 @@ with tab_status:
 
     st.dataframe(
         available_metrics[["country", "metric_display", "records", "first_date", "last_date"]],
-        use_container_width=True
+        width="stretch"
     )
 
     render_section_header("Processed Source Files", "File-level traceability for the selected country module.")
@@ -2606,7 +2725,7 @@ with tab_status:
         .sort_values("source_file")
     )
 
-    st.dataframe(files_summary, use_container_width=True)
+    st.dataframe(files_summary, width="stretch")
 
     render_section_header("Validation Checks", "Automated data validation results and warning counts.")
 
@@ -2622,10 +2741,10 @@ with tab_status:
         col_i, col_j = st.columns([1, 2])
 
         with col_i:
-            st.dataframe(validation_counts, use_container_width=True)
+            st.dataframe(validation_counts, width="stretch")
 
         with col_j:
-            st.dataframe(validation_df, use_container_width=True)
+            st.dataframe(validation_df, width="stretch")
 
     render_section_header("Indicadores de Gestión 2025 Validation", "Exploratory reinsurance-source warnings and flags.")
 
@@ -2641,10 +2760,10 @@ with tab_status:
         col_k, col_l = st.columns([1, 2])
 
         with col_k:
-            st.dataframe(indicadores_validation_counts, use_container_width=True)
+            st.dataframe(indicadores_validation_counts, width="stretch")
 
         with col_l:
-            st.dataframe(indicadores_validation_df, use_container_width=True)
+            st.dataframe(indicadores_validation_df, width="stretch")
 
     if indicadores_validation_flags_df.empty:
         st.info("No hay flags detallados cargados para Indicadores de Gestión 2025.")
@@ -2656,7 +2775,7 @@ with tab_status:
             .rename(columns={"size": "records"})
             .sort_values(["severity", "records"], ascending=[True, False])
         )
-        st.dataframe(indicadores_flags_status, use_container_width=True)
+        st.dataframe(indicadores_flags_status, width="stretch")
 
     st.info(
         "Esta sección evolucionará hacia un Data Status corporativo con logs de actualización, "
@@ -2668,7 +2787,9 @@ with tab_status:
 # TAB 8 — REPORTS / EXPORT
 # ============================================================
 
-with tab_reports:
+if selected_view == "Reports / Export":
+    indicadores_df = load_indicadores_gestion_2025()
+
     st.subheader("Reports / Export")
     st.caption("Exportables iniciales para análisis y preparación de reuniones.")
 
@@ -2747,22 +2868,26 @@ with tab_reports:
                 country=selected_country,
             )
 
-        report_reinsurance_wide = build_reinsurance_wide(
-            indicadores_df,
-            selected_country,
-            company=report_mapped_company,
-            line=report_mapped_line,
-        )
-        report_brief = build_company_brief(
-            country=selected_country,
-            company=selected_company,
-            selected_line=selected_line,
-            selected_years=selected_years,
-            company_df=report_company_df,
-            market_df=report_market_reference_df,
-            reinsurance_summary=summarize_reinsurance(report_reinsurance_wide),
-            minimum_premium=minimum_premium,
-        )
+        try:
+            report_reinsurance_wide = build_reinsurance_wide(
+                indicadores_df,
+                selected_country,
+                company=report_mapped_company,
+                line=report_mapped_line,
+            )
+            report_brief = build_company_brief(
+                country=selected_country,
+                company=selected_company,
+                selected_line=selected_line,
+                selected_years=selected_years,
+                company_df=report_company_df,
+                market_df=report_market_reference_df,
+                reinsurance_summary=summarize_reinsurance(report_reinsurance_wide),
+                minimum_premium=minimum_premium,
+            )
+        except Exception as exc:
+            render_section_error(exc)
+            st.stop()
         report_one_pager_markdown = render_one_pager_markdown(
             report_brief,
             company=selected_company,
@@ -2811,13 +2936,13 @@ with tab_reports:
 # TAB 9 — DATA TABLE
 # ============================================================
 
-with tab_data:
+if selected_view == "Data Table":
     st.subheader("Data Table")
     st.caption("Vista preliminar de los primeros 1,000 registros filtrados.")
 
     st.dataframe(
         filtered_df.head(1000),
-        use_container_width=True
+        width="stretch"
     )
 
     st.markdown("### Descripción del dataset")

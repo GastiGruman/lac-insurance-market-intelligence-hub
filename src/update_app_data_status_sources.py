@@ -25,7 +25,7 @@ old_block = '''    st.markdown("### Fuentes de datos")
         )
     )
 
-    st.dataframe(source_summary, use_container_width=True)
+    st.dataframe(source_summary, width="stretch")
 '''
 
 new_block = '''    st.markdown("### Fuentes de datos")
@@ -71,7 +71,7 @@ new_block = '''    st.markdown("### Fuentes de datos")
                 ignore_index=True
             )
 
-    st.dataframe(source_summary, use_container_width=True)
+    st.dataframe(source_summary, width="stretch")
 
     st.info(
         "La fuente principal del core regional es Fasecolda - Ciudades y Ramos. "
