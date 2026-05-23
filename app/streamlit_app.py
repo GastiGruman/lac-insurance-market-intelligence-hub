@@ -6,7 +6,6 @@ from pathlib import Path
 from datetime import datetime
 import unicodedata
 import sys
-import os
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -69,7 +68,7 @@ INDICADORES_VALIDATION_REPORT_PATH = Path("outputs/indicadores_gestion_2025_vali
 INDICADORES_VALIDATION_FLAGS_PATH = Path("outputs/indicadores_gestion_2025_flags.csv")
 CORE_MARKET_SOURCE = "FASECOLDA - CIUDADES Y RAMOS"
 CORE_SOURCE_VALUE_MULTIPLIER = 1_000
-DEBUG_MODE = os.getenv("STREAMLIT_DEBUG", "").strip().lower() in {"1", "true", "yes", "debug"}
+DEBUG_MODE = False
 
 # ============================================================
 # FUNCIONES DE CARGA
@@ -231,6 +230,16 @@ def render_section_error(error):
 def warn_and_stop(message):
     st.warning(message)
     st.stop()
+
+
+def safe_has_columns(data, required_columns):
+    return isinstance(data, pd.DataFrame) and set(required_columns).issubset(data.columns)
+
+
+def safe_divide(numerator, denominator):
+    if pd.isna(numerator) or pd.isna(denominator) or denominator == 0:
+        return None
+    return numerator / denominator
 
 
 def normalize_core_market_units(data):
@@ -711,6 +720,29 @@ if df.empty:
     )
     st.stop()
 
+CORE_REQUIRED_COLUMNS = [
+    "country",
+    "source",
+    "period_date",
+    "year",
+    "month",
+    "company_standard",
+    "line_of_business_standard",
+    "city",
+    "metric_name",
+    "metric_value",
+    "source_file",
+]
+
+if not safe_has_columns(df, CORE_REQUIRED_COLUMNS):
+    st.error(
+        "Data not available. The demo database is missing required columns for the dashboard."
+    )
+    if DEBUG_MODE:
+        missing_cols = sorted(set(CORE_REQUIRED_COLUMNS) - set(df.columns))
+        st.write({"missing_columns": missing_cols})
+    st.stop()
+
 df["period_date"] = pd.to_datetime(df["period_date"], errors="coerce")
 df["year"] = df["year"].astype(int)
 df["month"] = df["month"].astype(int)
@@ -828,7 +860,7 @@ if selected_city != "TODAS":
 
 if filtered_df.empty:
     warn_and_stop(
-        "Data not available for the selected filters. Please adjust the company, line of business, city, or year selection."
+        "No data available for the selected filters. Please adjust your selection."
     )
 
 premium_df = filtered_df[filtered_df["metric_name"] == "gross_written_premium"]
@@ -836,7 +868,7 @@ claims_df = filtered_df[filtered_df["metric_name"] == "claims"]
 
 total_premium = premium_df["metric_value"].sum()
 total_claims = claims_df["metric_value"].sum()
-loss_ratio = total_claims / total_premium if total_premium else None
+loss_ratio = safe_divide(total_claims, total_premium)
 
 # ============================================================
 # KPIs PRINCIPALES
@@ -895,1091 +927,1093 @@ selected_view = st.radio(
 # ============================================================
 
 if selected_view == "Market Overview":
-    render_section_header(
-        "Executive Market Dashboard",
-        "A broker-focused view of premiums, claims, loss ratio, market movement, and portfolio concentration under the selected filters.",
-    )
+    try:
+        render_section_header(
+            "Executive Market Dashboard",
+            "A broker-focused view of premiums, claims, loss ratio, market movement, and portfolio concentration under the selected filters.",
+        )
 
-    action_col_a, action_col_b, action_col_c = st.columns(3)
-    with action_col_a:
-        render_metric_card("Key action", "Market Dashboard", "Review the trend charts below")
-    with action_col_b:
-        render_metric_card("Key action", "Company Brief", "Select a company in the sidebar")
-    with action_col_c:
-        render_metric_card("Key action", "Data Status", "Validate coverage and warnings")
+        action_col_a, action_col_b, action_col_c = st.columns(3)
+        with action_col_a:
+            render_metric_card("Key action", "Market Dashboard", "Review the trend charts below")
+        with action_col_b:
+            render_metric_card("Key action", "Company Brief", "Select a company in the sidebar")
+        with action_col_c:
+            render_metric_card("Key action", "Data Status", "Validate coverage and warnings")
 
-    render_section_header("Market Trends", "Premiums, claims and loss ratio for the selected market scope.")
+        render_section_header("Market Trends", "Premiums, claims and loss ratio for the selected market scope.")
 
-    year_summary = (
-        filtered_df
-        .groupby(["year", "metric_name"], as_index=False)["metric_value"]
-        .sum()
-    )
+        year_summary = (
+            filtered_df
+            .groupby(["year", "metric_name"], as_index=False)["metric_value"]
+            .sum()
+        )
 
-    year_summary["value_mm"] = year_summary["metric_value"] / 1_000_000
+        year_summary["value_mm"] = year_summary["metric_value"] / 1_000_000
 
-    metric_labels = {
-        "gross_written_premium": "Primas",
-        "claims": "Siniestros"
-    }
-
-    year_summary["metric_label"] = year_summary["metric_name"].map(metric_labels)
-
-    fig_year = px.line(
-        year_summary,
-        x="year",
-        y="value_mm",
-        color="metric_label",
-        markers=True,
-        title="Evolución de primas y siniestros",
-        labels={
-            "year": "Año",
-            "value_mm": "Valor en millones de pesos",
-            "metric_label": "Métrica"
+        metric_labels = {
+            "gross_written_premium": "Primas",
+            "claims": "Siniestros"
         }
-    )
 
-    fix_year_axis(fig_year, year_summary["year"].unique())
-    st.plotly_chart(fig_year, width="stretch")
+        year_summary["metric_label"] = year_summary["metric_name"].map(metric_labels)
 
-    yearly_lr = prepare_premium_claims_summary(filtered_df, ["year"])
-    yearly_lr["premium_growth"] = yearly_lr["primas"].pct_change()
-    yearly_lr["primas_mm"] = yearly_lr["primas"] / 1_000_000
-    yearly_lr["siniestros_mm"] = yearly_lr["siniestros"] / 1_000_000
-
-    col_a, col_b = st.columns(2)
-
-    with col_a:
-        fig_lr = px.line(
-            yearly_lr,
+        fig_year = px.line(
+            year_summary,
             x="year",
-            y="siniestralidad",
+            y="value_mm",
+            color="metric_label",
             markers=True,
-            title="Siniestralidad anual",
+            title="Evolución de primas y siniestros",
             labels={
                 "year": "Año",
-                "siniestralidad": "Siniestralidad"
+                "value_mm": "Valor en millones de pesos",
+                "metric_label": "Métrica"
             }
         )
 
-        fix_year_axis(fig_lr, yearly_lr["year"].unique())
-        fig_lr.update_yaxes(tickformat=".1%")
-        st.plotly_chart(fig_lr, width="stretch")
+        fix_year_axis(fig_year, year_summary["year"].unique())
+        st.plotly_chart(fig_year, width="stretch")
 
-    with col_b:
-        fig_growth = px.bar(
-            yearly_lr,
-            x="year",
-            y="premium_growth",
-            title="Crecimiento anual de primas",
-            labels={
-                "year": "Año",
-                "premium_growth": "Crecimiento"
-            }
+        yearly_lr = prepare_premium_claims_summary(filtered_df, ["year"])
+        yearly_lr["premium_growth"] = yearly_lr["primas"].pct_change()
+        yearly_lr["primas_mm"] = yearly_lr["primas"] / 1_000_000
+        yearly_lr["siniestros_mm"] = yearly_lr["siniestros"] / 1_000_000
+
+        col_a, col_b = st.columns(2)
+
+        with col_a:
+            fig_lr = px.line(
+                yearly_lr,
+                x="year",
+                y="siniestralidad",
+                markers=True,
+                title="Siniestralidad anual",
+                labels={
+                    "year": "Año",
+                    "siniestralidad": "Siniestralidad"
+                }
+            )
+
+            fix_year_axis(fig_lr, yearly_lr["year"].unique())
+            fig_lr.update_yaxes(tickformat=".1%")
+            st.plotly_chart(fig_lr, width="stretch")
+
+        with col_b:
+            fig_growth = px.bar(
+                yearly_lr,
+                x="year",
+                y="premium_growth",
+                title="Crecimiento anual de primas",
+                labels={
+                    "year": "Año",
+                    "premium_growth": "Crecimiento"
+                }
+            )
+
+            fix_year_axis(fig_growth, yearly_lr["year"].unique())
+            fig_growth.update_yaxes(tickformat=".1%")
+            st.plotly_chart(fig_growth, width="stretch")
+
+        st.subheader("Resumen anual")
+
+        yearly_display = make_display_summary(yearly_lr)
+        st.dataframe(
+            yearly_display[["year", "primas", "siniestros", "siniestralidad", "premium_growth"]],
+            width="stretch"
         )
 
-        fix_year_axis(fig_growth, yearly_lr["year"].unique())
-        fig_growth.update_yaxes(tickformat=".1%")
-        st.plotly_chart(fig_growth, width="stretch")
+        st.subheader("Ranking de mercado")
 
-    st.subheader("Resumen anual")
+        col_c, col_d = st.columns(2)
 
-    yearly_display = make_display_summary(yearly_lr)
-    st.dataframe(
-        yearly_display[["year", "primas", "siniestros", "siniestralidad", "premium_growth"]],
-        width="stretch"
-    )
+        with col_c:
+            premium_by_company = (
+                premium_df
+                .groupby("company_standard", as_index=False)["metric_value"]
+                .sum()
+                .sort_values("metric_value", ascending=False)
+                .head(15)
+            )
 
-    st.subheader("Ranking de mercado")
+            premium_by_company["value_mm"] = premium_by_company["metric_value"] / 1_000_000
 
-    col_c, col_d = st.columns(2)
+            fig_company = px.bar(
+                premium_by_company,
+                x="company_standard",
+                y="value_mm",
+                title="Top 15 compañías por primas",
+                labels={
+                    "company_standard": "Compañía",
+                    "value_mm": "Primas en millones de pesos"
+                }
+            )
 
-    with col_c:
-        premium_by_company = (
+            st.plotly_chart(fig_company, width="stretch")
+
+        with col_d:
+            premium_by_line = (
+                premium_df
+                .groupby("line_of_business_standard", as_index=False)["metric_value"]
+                .sum()
+                .sort_values("metric_value", ascending=False)
+                .head(15)
+            )
+
+            premium_by_line["value_mm"] = premium_by_line["metric_value"] / 1_000_000
+
+            fig_line = px.bar(
+                premium_by_line,
+                x="line_of_business_standard",
+                y="value_mm",
+                title="Top 15 ramos por primas",
+                labels={
+                    "line_of_business_standard": "Ramo",
+                    "value_mm": "Primas en millones de pesos"
+                }
+            )
+
+            st.plotly_chart(fig_line, width="stretch")
+
+        st.subheader("Market share por compañía")
+
+        market_share = (
             premium_df
             .groupby("company_standard", as_index=False)["metric_value"]
             .sum()
             .sort_values("metric_value", ascending=False)
-            .head(15)
         )
 
-        premium_by_company["value_mm"] = premium_by_company["metric_value"] / 1_000_000
+        if not market_share.empty and market_share["metric_value"].sum() > 0:
+            market_share["market_share"] = market_share["metric_value"] / market_share["metric_value"].sum()
+            market_share_top = market_share.head(15)
 
-        fig_company = px.bar(
-            premium_by_company,
-            x="company_standard",
-            y="value_mm",
-            title="Top 15 compañías por primas",
-            labels={
-                "company_standard": "Compañía",
-                "value_mm": "Primas en millones de pesos"
-            }
-        )
+            fig_share = px.bar(
+                market_share_top,
+                x="company_standard",
+                y="market_share",
+                title="Top 15 compañías por participación de mercado",
+                labels={
+                    "company_standard": "Compañía",
+                    "market_share": "Market share"
+                }
+            )
 
-        st.plotly_chart(fig_company, width="stretch")
-
-    with col_d:
-        premium_by_line = (
-            premium_df
-            .groupby("line_of_business_standard", as_index=False)["metric_value"]
-            .sum()
-            .sort_values("metric_value", ascending=False)
-            .head(15)
-        )
-
-        premium_by_line["value_mm"] = premium_by_line["metric_value"] / 1_000_000
-
-        fig_line = px.bar(
-            premium_by_line,
-            x="line_of_business_standard",
-            y="value_mm",
-            title="Top 15 ramos por primas",
-            labels={
-                "line_of_business_standard": "Ramo",
-                "value_mm": "Primas en millones de pesos"
-            }
-        )
-
-        st.plotly_chart(fig_line, width="stretch")
-
-    st.subheader("Market share por compañía")
-
-    market_share = (
-        premium_df
-        .groupby("company_standard", as_index=False)["metric_value"]
-        .sum()
-        .sort_values("metric_value", ascending=False)
-    )
-
-    if not market_share.empty and market_share["metric_value"].sum() > 0:
-        market_share["market_share"] = market_share["metric_value"] / market_share["metric_value"].sum()
-        market_share_top = market_share.head(15)
-
-        fig_share = px.bar(
-            market_share_top,
-            x="company_standard",
-            y="market_share",
-            title="Top 15 compañías por participación de mercado",
-            labels={
-                "company_standard": "Compañía",
-                "market_share": "Market share"
-            }
-        )
-
-        fig_share.update_yaxes(tickformat=".1%")
-        st.plotly_chart(fig_share, width="stretch")
-    else:
-        st.info("No hay primas suficientes para calcular market share.")
+            fig_share.update_yaxes(tickformat=".1%")
+            st.plotly_chart(fig_share, width="stretch")
+        else:
+            st.info("No hay primas suficientes para calcular market share.")
+    except Exception as exc:
+        render_section_error(exc)
 
 # ============================================================
 # TAB 2 — COMPANY EXPLORER
 # ============================================================
 
 if selected_view == "Company Explorer":
-    st.subheader("Company Explorer")
-    st.caption("Análisis específico de una aseguradora.")
+    try:
+        st.subheader("Company Explorer")
+        st.caption("Análisis específico de una aseguradora.")
 
-    if selected_company == "TODAS":
-        st.info("Selecciona una compañía en el filtro lateral para ver el análisis específico.")
-    else:
-        company_df = filtered_df[filtered_df["company_standard"] == selected_company]
+        if selected_company == "TODAS":
+            st.info("Selecciona una compañía en el filtro lateral para ver el análisis específico.")
+        else:
+            company_df = filtered_df[filtered_df["company_standard"] == selected_company]
 
-        company_summary = prepare_premium_claims_summary(company_df, ["year"])
-        company_summary["premium_growth"] = company_summary["primas"].pct_change()
-        company_summary["primas_mm"] = company_summary["primas"] / 1_000_000
-        company_summary["siniestros_mm"] = company_summary["siniestros"] / 1_000_000
+            company_summary = prepare_premium_claims_summary(company_df, ["year"])
+            company_summary["premium_growth"] = company_summary["primas"].pct_change()
+            company_summary["primas_mm"] = company_summary["primas"] / 1_000_000
+            company_summary["siniestros_mm"] = company_summary["siniestros"] / 1_000_000
 
-        latest_company_year = int(company_summary["year"].max()) if not company_summary.empty else None
+            latest_company_year = int(company_summary["year"].max()) if not company_summary.empty else None
 
-        if latest_company_year:
-            latest_company_row = company_summary[company_summary["year"] == latest_company_year]
-            latest_company_premium = latest_company_row["primas"].sum()
-            latest_company_claims = latest_company_row["siniestros"].sum()
-            latest_company_lr = (
-                latest_company_claims / latest_company_premium
-                if latest_company_premium else None
+            if latest_company_year:
+                latest_company_row = company_summary[company_summary["year"] == latest_company_year]
+                latest_company_premium = latest_company_row["primas"].sum()
+                latest_company_claims = latest_company_row["siniestros"].sum()
+                latest_company_lr = (
+                    latest_company_claims / latest_company_premium
+                    if latest_company_premium else None
+                )
+
+                k1, k2, k3 = st.columns(3)
+                k1.metric("Primas último año", format_millions(latest_company_premium))
+                k2.metric("Siniestros último año", format_millions(latest_company_claims))
+                k3.metric("Siniestralidad último año", format_percentage(latest_company_lr))
+
+            col_a, col_b = st.columns(2)
+
+            with col_a:
+                fig_company_premium = px.line(
+                    company_summary,
+                    x="year",
+                    y="primas_mm",
+                    markers=True,
+                    title=f"Primas anuales — {selected_company}",
+                    labels={
+                        "year": "Año",
+                        "primas_mm": "Primas en millones de pesos"
+                    }
+                )
+
+                fix_year_axis(fig_company_premium, company_summary["year"].unique())
+                st.plotly_chart(fig_company_premium, width="stretch")
+
+            with col_b:
+                fig_company_lr = px.line(
+                    company_summary,
+                    x="year",
+                    y="siniestralidad",
+                    markers=True,
+                    title=f"Siniestralidad anual — {selected_company}",
+                    labels={
+                        "year": "Año",
+                        "siniestralidad": "Siniestralidad"
+                    }
+                )
+
+                fix_year_axis(fig_company_lr, company_summary["year"].unique())
+                fig_company_lr.update_yaxes(tickformat=".1%")
+                st.plotly_chart(fig_company_lr, width="stretch")
+
+            st.subheader("Principales ramos de la compañía")
+
+            company_premium = company_df[company_df["metric_name"] == "gross_written_premium"]
+
+            company_by_line = (
+                company_premium
+                .groupby("line_of_business_standard", as_index=False)["metric_value"]
+                .sum()
+                .sort_values("metric_value", ascending=False)
+                .head(15)
             )
 
-            k1, k2, k3 = st.columns(3)
-            k1.metric("Primas último año", format_millions(latest_company_premium))
-            k2.metric("Siniestros último año", format_millions(latest_company_claims))
-            k3.metric("Siniestralidad último año", format_percentage(latest_company_lr))
+            company_by_line["value_mm"] = company_by_line["metric_value"] / 1_000_000
 
-        col_a, col_b = st.columns(2)
-
-        with col_a:
-            fig_company_premium = px.line(
-                company_summary,
-                x="year",
-                y="primas_mm",
-                markers=True,
-                title=f"Primas anuales — {selected_company}",
+            fig_company_line = px.bar(
+                company_by_line,
+                x="line_of_business_standard",
+                y="value_mm",
+                title=f"Top ramos por primas — {selected_company}",
                 labels={
-                    "year": "Año",
-                    "primas_mm": "Primas en millones de pesos"
+                    "line_of_business_standard": "Ramo",
+                    "value_mm": "Primas en millones de pesos"
                 }
             )
 
-            fix_year_axis(fig_company_premium, company_summary["year"].unique())
-            st.plotly_chart(fig_company_premium, width="stretch")
+            st.plotly_chart(fig_company_line, width="stretch")
 
-        with col_b:
-            fig_company_lr = px.line(
-                company_summary,
-                x="year",
-                y="siniestralidad",
-                markers=True,
-                title=f"Siniestralidad anual — {selected_company}",
-                labels={
-                    "year": "Año",
-                    "siniestralidad": "Siniestralidad"
-                }
+            st.subheader("Resumen anual de la compañía")
+
+            company_display = make_display_summary(company_summary)
+            st.dataframe(
+                company_display[["year", "primas", "siniestros", "siniestralidad", "premium_growth"]],
+                width="stretch"
             )
-
-            fix_year_axis(fig_company_lr, company_summary["year"].unique())
-            fig_company_lr.update_yaxes(tickformat=".1%")
-            st.plotly_chart(fig_company_lr, width="stretch")
-
-        st.subheader("Principales ramos de la compañía")
-
-        company_premium = company_df[company_df["metric_name"] == "gross_written_premium"]
-
-        company_by_line = (
-            company_premium
-            .groupby("line_of_business_standard", as_index=False)["metric_value"]
-            .sum()
-            .sort_values("metric_value", ascending=False)
-            .head(15)
-        )
-
-        company_by_line["value_mm"] = company_by_line["metric_value"] / 1_000_000
-
-        fig_company_line = px.bar(
-            company_by_line,
-            x="line_of_business_standard",
-            y="value_mm",
-            title=f"Top ramos por primas — {selected_company}",
-            labels={
-                "line_of_business_standard": "Ramo",
-                "value_mm": "Primas en millones de pesos"
-            }
-        )
-
-        st.plotly_chart(fig_company_line, width="stretch")
-
-        st.subheader("Resumen anual de la compañía")
-
-        company_display = make_display_summary(company_summary)
-        st.dataframe(
-            company_display[["year", "primas", "siniestros", "siniestralidad", "premium_growth"]],
-            width="stretch"
-        )
+    except Exception as exc:
+        render_section_error(exc)
 
 # ============================================================
 # TAB 3 — LINE OF BUSINESS EXPLORER
 # ============================================================
 
 if selected_view == "Line of Business Explorer":
-    st.subheader("Line of Business Explorer")
-    st.caption("Análisis específico de un ramo.")
+    try:
+        st.subheader("Line of Business Explorer")
+        st.caption("Análisis específico de un ramo.")
 
-    if selected_line == "TODOS":
-        st.info("Selecciona un ramo en el filtro lateral para ver el análisis específico.")
-    else:
-        line_df = filtered_df[filtered_df["line_of_business_standard"] == selected_line]
+        if selected_line == "TODOS":
+            st.info("Selecciona un ramo en el filtro lateral para ver el análisis específico.")
+        else:
+            line_df = filtered_df[filtered_df["line_of_business_standard"] == selected_line]
 
-        line_summary = prepare_premium_claims_summary(line_df, ["year"])
-        line_summary["premium_growth"] = line_summary["primas"].pct_change()
-        line_summary["primas_mm"] = line_summary["primas"] / 1_000_000
-        line_summary["siniestros_mm"] = line_summary["siniestros"] / 1_000_000
+            line_summary = prepare_premium_claims_summary(line_df, ["year"])
+            line_summary["premium_growth"] = line_summary["primas"].pct_change()
+            line_summary["primas_mm"] = line_summary["primas"] / 1_000_000
+            line_summary["siniestros_mm"] = line_summary["siniestros"] / 1_000_000
 
-        col_a, col_b = st.columns(2)
+            col_a, col_b = st.columns(2)
 
-        with col_a:
-            fig_line_premium = px.line(
-                line_summary,
-                x="year",
-                y="primas_mm",
-                markers=True,
-                title=f"Primas anuales — {selected_line}",
-                labels={
-                    "year": "Año",
-                    "primas_mm": "Primas en millones de pesos"
-                }
+            with col_a:
+                fig_line_premium = px.line(
+                    line_summary,
+                    x="year",
+                    y="primas_mm",
+                    markers=True,
+                    title=f"Primas anuales — {selected_line}",
+                    labels={
+                        "year": "Año",
+                        "primas_mm": "Primas en millones de pesos"
+                    }
+                )
+
+                fix_year_axis(fig_line_premium, line_summary["year"].unique())
+                st.plotly_chart(fig_line_premium, width="stretch")
+
+            with col_b:
+                fig_line_lr = px.line(
+                    line_summary,
+                    x="year",
+                    y="siniestralidad",
+                    markers=True,
+                    title=f"Siniestralidad anual — {selected_line}",
+                    labels={
+                        "year": "Año",
+                        "siniestralidad": "Siniestralidad"
+                    }
+                )
+
+                fix_year_axis(fig_line_lr, line_summary["year"].unique())
+                fig_line_lr.update_yaxes(tickformat=".1%")
+                st.plotly_chart(fig_line_lr, width="stretch")
+
+            st.subheader("Top compañías dentro del ramo")
+
+            line_premium = line_df[line_df["metric_name"] == "gross_written_premium"]
+
+            line_by_company = (
+                line_premium
+                .groupby("company_standard", as_index=False)["metric_value"]
+                .sum()
+                .sort_values("metric_value", ascending=False)
+                .head(20)
             )
 
-            fix_year_axis(fig_line_premium, line_summary["year"].unique())
-            st.plotly_chart(fig_line_premium, width="stretch")
+            line_by_company["value_mm"] = line_by_company["metric_value"] / 1_000_000
 
-        with col_b:
-            fig_line_lr = px.line(
-                line_summary,
-                x="year",
-                y="siniestralidad",
-                markers=True,
-                title=f"Siniestralidad anual — {selected_line}",
-                labels={
-                    "year": "Año",
-                    "siniestralidad": "Siniestralidad"
-                }
-            )
-
-            fix_year_axis(fig_line_lr, line_summary["year"].unique())
-            fig_line_lr.update_yaxes(tickformat=".1%")
-            st.plotly_chart(fig_line_lr, width="stretch")
-
-        st.subheader("Top compañías dentro del ramo")
-
-        line_premium = line_df[line_df["metric_name"] == "gross_written_premium"]
-
-        line_by_company = (
-            line_premium
-            .groupby("company_standard", as_index=False)["metric_value"]
-            .sum()
-            .sort_values("metric_value", ascending=False)
-            .head(20)
-        )
-
-        line_by_company["value_mm"] = line_by_company["metric_value"] / 1_000_000
-
-        fig_line_company = px.bar(
-            line_by_company,
-            x="company_standard",
-            y="value_mm",
-            title=f"Top compañías por primas — {selected_line}",
-            labels={
-                "company_standard": "Compañía",
-                "value_mm": "Primas en millones de pesos"
-            }
-        )
-
-        st.plotly_chart(fig_line_company, width="stretch")
-
-        st.subheader("Siniestralidad por compañía en el ramo")
-
-        line_company_lr = prepare_premium_claims_summary(line_df, ["company_standard"])
-        line_company_lr = line_company_lr[line_company_lr["primas"] >= minimum_premium]
-        line_company_lr = line_company_lr.sort_values("primas", ascending=False).head(20)
-        line_company_lr["primas_mm"] = line_company_lr["primas"] / 1_000_000
-
-        if not line_company_lr.empty:
-            fig_line_company_lr = px.bar(
-                line_company_lr,
+            fig_line_company = px.bar(
+                line_by_company,
                 x="company_standard",
-                y="siniestralidad",
-                title=f"Siniestralidad por compañía — {selected_line}",
+                y="value_mm",
+                title=f"Top compañías por primas — {selected_line}",
                 labels={
                     "company_standard": "Compañía",
-                    "siniestralidad": "Siniestralidad"
-                },
-                hover_data=["primas_mm"]
+                    "value_mm": "Primas en millones de pesos"
+                }
             )
 
-            fig_line_company_lr.update_yaxes(tickformat=".1%")
-            st.plotly_chart(fig_line_company_lr, width="stretch")
-        else:
-            st.info("No hay compañías que superen el umbral mínimo de primas seleccionado.")
+            st.plotly_chart(fig_line_company, width="stretch")
 
-        st.subheader("Resumen anual del ramo")
+            st.subheader("Siniestralidad por compañía en el ramo")
 
-        line_display = make_display_summary(line_summary)
-        st.dataframe(
-            line_display[["year", "primas", "siniestros", "siniestralidad", "premium_growth"]],
-            width="stretch"
-        )
+            line_company_lr = prepare_premium_claims_summary(line_df, ["company_standard"])
+            line_company_lr = line_company_lr[line_company_lr["primas"] >= minimum_premium]
+            line_company_lr = line_company_lr.sort_values("primas", ascending=False).head(20)
+            line_company_lr["primas_mm"] = line_company_lr["primas"] / 1_000_000
+
+            if not line_company_lr.empty:
+                fig_line_company_lr = px.bar(
+                    line_company_lr,
+                    x="company_standard",
+                    y="siniestralidad",
+                    title=f"Siniestralidad por compañía — {selected_line}",
+                    labels={
+                        "company_standard": "Compañía",
+                        "siniestralidad": "Siniestralidad"
+                    },
+                    hover_data=["primas_mm"]
+                )
+
+                fig_line_company_lr.update_yaxes(tickformat=".1%")
+                st.plotly_chart(fig_line_company_lr, width="stretch")
+            else:
+                st.info("No hay compañías que superen el umbral mínimo de primas seleccionado.")
+
+            st.subheader("Resumen anual del ramo")
+
+            line_display = make_display_summary(line_summary)
+            st.dataframe(
+                line_display[["year", "primas", "siniestros", "siniestralidad", "premium_growth"]],
+                width="stretch"
+            )
+    except Exception as exc:
+        render_section_error(exc)
 
 # ============================================================
 # TAB 4 — COMPANY BRIEF
 # ============================================================
 
 if selected_view == "Company Brief":
-    indicadores_df = load_indicadores_gestion_2025()
+    try:
+        indicadores_df = load_indicadores_gestion_2025()
 
-    render_section_header(
-        "Executive Broker Briefing",
-        "Structured meeting preparation generated from the selected filters and public structured market data.",
-    )
-
-    if selected_company == "TODAS":
-        st.info("Selecciona una compañía en el filtro lateral para generar el Company Brief.")
-    else:
-        company_df = filtered_df[filtered_df["company_standard"] == selected_company]
-
-        market_reference_df = country_df[country_df["year"].isin(selected_years)]
-
-        if selected_line != "TODOS":
-            market_reference_df = market_reference_df[
-                market_reference_df["line_of_business_standard"] == selected_line
-            ]
-
-        if selected_city != "TODAS":
-            market_reference_df = market_reference_df[
-                market_reference_df["city"] == selected_city
-            ]
-
-        mapped_company_for_re = map_company_using_mapping_table(
-            selected_company,
-            target_source="FASECOLDA - INDICADORES DE GESTION",
-            country=selected_country
+        render_section_header(
+            "Executive Broker Briefing",
+            "Structured meeting preparation generated from the selected filters and public structured market data.",
         )
-        mapped_line_for_re = None
-        if selected_line != "TODOS":
-            mapped_line_for_re = map_lob_using_mapping_table(
-                selected_line,
+
+        if selected_company == "TODAS":
+            st.info("Selecciona una compañía en el filtro lateral para generar el Company Brief.")
+        else:
+            company_df = filtered_df[filtered_df["company_standard"] == selected_company]
+
+            market_reference_df = country_df[country_df["year"].isin(selected_years)]
+
+            if selected_line != "TODOS":
+                market_reference_df = market_reference_df[
+                    market_reference_df["line_of_business_standard"] == selected_line
+                ]
+
+            if selected_city != "TODAS":
+                market_reference_df = market_reference_df[
+                    market_reference_df["city"] == selected_city
+                ]
+
+            mapped_company_for_re = map_company_using_mapping_table(
+                selected_company,
                 target_source="FASECOLDA - INDICADORES DE GESTION",
                 country=selected_country
             )
+            mapped_line_for_re = None
+            if selected_line != "TODOS":
+                mapped_line_for_re = map_lob_using_mapping_table(
+                    selected_line,
+                    target_source="FASECOLDA - INDICADORES DE GESTION",
+                    country=selected_country
+                )
 
-        try:
-            company_reinsurance_wide = build_reinsurance_wide(
-                indicadores_df,
-                selected_country,
-                company=mapped_company_for_re,
-                line=mapped_line_for_re,
-            )
-            company_reinsurance_summary = summarize_reinsurance(company_reinsurance_wide)
+            try:
+                company_reinsurance_wide = build_reinsurance_wide(
+                    indicadores_df,
+                    selected_country,
+                    company=mapped_company_for_re,
+                    line=mapped_line_for_re,
+                )
+                company_reinsurance_summary = summarize_reinsurance(company_reinsurance_wide)
 
-            brief = build_company_brief(
-                country=selected_country,
+                brief = build_company_brief(
+                    country=selected_country,
+                    company=selected_company,
+                    selected_line=selected_line,
+                    selected_years=selected_years,
+                    company_df=company_df,
+                    market_df=market_reference_df,
+                    reinsurance_summary=company_reinsurance_summary,
+                    minimum_premium=minimum_premium,
+                )
+            except Exception as exc:
+                render_section_error(exc)
+                st.stop()
+
+            col_a, col_b = st.columns([2, 1])
+
+            with col_a:
+                render_section_header("Executive Snapshot")
+                st.write(brief["executive_summary"])
+
+                render_section_header("Technical Performance", "Premium, claims and loss ratio evolution.")
+                premium_evolution = brief["premium_evolution"].copy()
+                if not premium_evolution.empty:
+                    premium_evolution["primas_display"] = premium_evolution["primas"].map(format_millions)
+                    premium_evolution["siniestros_display"] = premium_evolution["siniestros"].map(format_millions)
+                    premium_evolution["siniestralidad_display"] = premium_evolution["siniestralidad"].map(format_percentage)
+                    premium_evolution["premium_growth_display"] = premium_evolution["premium_growth"].map(format_percentage)
+                    st.dataframe(
+                        premium_evolution[
+                            [
+                                "year",
+                                "primas_display",
+                                "siniestros_display",
+                                "siniestralidad_display",
+                                "premium_growth_display",
+                            ]
+                        ],
+                        width="stretch"
+                    )
+
+                render_section_header("Market Position", "Company premium relative to the selected market reference.")
+                market_share_display = brief["market_share"].copy()
+                if not market_share_display.empty:
+                    market_share_display["company_premium"] = market_share_display["primas"].map(format_millions)
+                    market_share_display["market_premium"] = market_share_display["market_primas"].map(format_millions)
+                    market_share_display["market_share_display"] = market_share_display["market_share"].map(format_percentage)
+                    st.dataframe(
+                        market_share_display[
+                            ["year", "company_premium", "market_premium", "market_share_display"]
+                        ],
+                        width="stretch"
+                    )
+
+                render_section_header("Portfolio Mix", "Largest lines of business by premium.")
+                main_lines_display = brief["main_lines"].copy()
+                if main_lines_display.empty:
+                    st.info("Data not available")
+                else:
+                    main_lines_display["gross_written_premium_display"] = main_lines_display["gross_written_premium"].map(format_millions)
+                    st.dataframe(
+                        main_lines_display[
+                            ["line_of_business_standard", "gross_written_premium_display"]
+                        ],
+                        width="stretch"
+                    )
+
+                render_section_header("Growth Signals", "Fastest growing lines under the current premium threshold.")
+                fastest_display = brief["fastest_growing_lines"].copy()
+                if fastest_display.empty:
+                    st.info("Data not available")
+                else:
+                    fastest_display["primas_display"] = fastest_display["primas"].map(format_millions)
+                    fastest_display["premium_growth_display"] = fastest_display["premium_growth"].map(format_percentage)
+                    st.dataframe(
+                        fastest_display[
+                            ["line_of_business_standard", "year", "primas_display", "premium_growth_display"]
+                        ],
+                        width="stretch"
+                    )
+
+                render_section_header("Loss Ratio Watch", "Lines with deteriorating technical performance.")
+                deterioration_display = brief["deteriorating_loss_ratio_lines"].copy()
+                if deterioration_display.empty:
+                    st.info("Data not available")
+                else:
+                    deterioration_display["siniestralidad_display"] = deterioration_display["siniestralidad"].map(format_percentage)
+                    deterioration_display["loss_ratio_change_display"] = deterioration_display["loss_ratio_change"].map(format_percentage)
+                    st.dataframe(
+                        deterioration_display[
+                            [
+                                "line_of_business_standard",
+                                "year",
+                                "siniestralidad_display",
+                                "loss_ratio_change_display",
+                            ]
+                        ],
+                        width="stretch"
+                    )
+
+                render_section_header("Reinsurance Indicators", "Exploratory indicators from Indicadores de Gestión when available.")
+                st.write(brief["reinsurance_text"])
+
+                render_section_header("Key Alerts")
+                for alert in brief["alerts"]:
+                    st.write(f"- {alert}")
+
+                render_section_header("Broker Questions")
+                for question in brief["questions"]:
+                    st.write(f"- {question}")
+
+            with col_b:
+                render_section_header("Quick Indicators")
+
+                company_summary = prepare_premium_claims_summary(company_df, ["year"])
+
+                if not company_summary.empty:
+                    latest_year = int(company_summary["year"].max())
+                    latest_row = company_summary[company_summary["year"] == latest_year]
+
+                    latest_premium = latest_row["primas"].sum()
+                    latest_claims = latest_row["siniestros"].sum()
+                    latest_lr = latest_claims / latest_premium if latest_premium else None
+
+                    render_metric_card("Year", str(latest_year))
+                    render_metric_card("Premiums", format_millions(latest_premium))
+                    render_metric_card("Claims", format_millions(latest_claims))
+                    render_metric_card("Loss ratio", format_percentage(latest_lr))
+
+                if company_reinsurance_summary.get("available"):
+                    render_section_header("Reinsurance")
+                    render_metric_card("Cession ratio", format_percentage(company_reinsurance_summary["cession_ratio"]))
+                    render_metric_card("Retention ratio", format_percentage(company_reinsurance_summary["retention_ratio"]))
+                    render_metric_card("Ceded premium", format_millions(company_reinsurance_summary["reinsurance_ceded_premium"]))
+                else:
+                    st.info("Reinsurance indicators not available for this selection.")
+
+                render_section_header("Data Source")
+                st.write(f"Source: {brief['source']['source']}")
+                st.write(f"Period: {brief['source']['period']}")
+                st.write(f"Records: {brief['source']['records']:,}")
+
+            st.divider()
+
+            st.markdown("### Company One-Pager")
+
+            one_pager_markdown = render_one_pager_markdown(
+                brief,
                 company=selected_company,
-                selected_line=selected_line,
-                selected_years=selected_years,
-                company_df=company_df,
-                market_df=market_reference_df,
-                reinsurance_summary=company_reinsurance_summary,
-                minimum_premium=minimum_premium,
+                country=selected_country,
             )
-        except Exception as exc:
-            render_section_error(exc)
-            st.stop()
-
-        col_a, col_b = st.columns([2, 1])
-
-        with col_a:
-            render_section_header("Executive Snapshot")
-            st.write(brief["executive_summary"])
-
-            render_section_header("Technical Performance", "Premium, claims and loss ratio evolution.")
-            premium_evolution = brief["premium_evolution"].copy()
-            if not premium_evolution.empty:
-                premium_evolution["primas_display"] = premium_evolution["primas"].map(format_millions)
-                premium_evolution["siniestros_display"] = premium_evolution["siniestros"].map(format_millions)
-                premium_evolution["siniestralidad_display"] = premium_evolution["siniestralidad"].map(format_percentage)
-                premium_evolution["premium_growth_display"] = premium_evolution["premium_growth"].map(format_percentage)
-                st.dataframe(
-                    premium_evolution[
-                        [
-                            "year",
-                            "primas_display",
-                            "siniestros_display",
-                            "siniestralidad_display",
-                            "premium_growth_display",
-                        ]
-                    ],
-                    width="stretch"
-                )
-
-            render_section_header("Market Position", "Company premium relative to the selected market reference.")
-            market_share_display = brief["market_share"].copy()
-            if not market_share_display.empty:
-                market_share_display["company_premium"] = market_share_display["primas"].map(format_millions)
-                market_share_display["market_premium"] = market_share_display["market_primas"].map(format_millions)
-                market_share_display["market_share_display"] = market_share_display["market_share"].map(format_percentage)
-                st.dataframe(
-                    market_share_display[
-                        ["year", "company_premium", "market_premium", "market_share_display"]
-                    ],
-                    width="stretch"
-                )
-
-            render_section_header("Portfolio Mix", "Largest lines of business by premium.")
-            main_lines_display = brief["main_lines"].copy()
-            if main_lines_display.empty:
-                st.info("Data not available")
-            else:
-                main_lines_display["gross_written_premium_display"] = main_lines_display["gross_written_premium"].map(format_millions)
-                st.dataframe(
-                    main_lines_display[
-                        ["line_of_business_standard", "gross_written_premium_display"]
-                    ],
-                    width="stretch"
-                )
-
-            render_section_header("Growth Signals", "Fastest growing lines under the current premium threshold.")
-            fastest_display = brief["fastest_growing_lines"].copy()
-            if fastest_display.empty:
-                st.info("Data not available")
-            else:
-                fastest_display["primas_display"] = fastest_display["primas"].map(format_millions)
-                fastest_display["premium_growth_display"] = fastest_display["premium_growth"].map(format_percentage)
-                st.dataframe(
-                    fastest_display[
-                        ["line_of_business_standard", "year", "primas_display", "premium_growth_display"]
-                    ],
-                    width="stretch"
-                )
-
-            render_section_header("Loss Ratio Watch", "Lines with deteriorating technical performance.")
-            deterioration_display = brief["deteriorating_loss_ratio_lines"].copy()
-            if deterioration_display.empty:
-                st.info("Data not available")
-            else:
-                deterioration_display["siniestralidad_display"] = deterioration_display["siniestralidad"].map(format_percentage)
-                deterioration_display["loss_ratio_change_display"] = deterioration_display["loss_ratio_change"].map(format_percentage)
-                st.dataframe(
-                    deterioration_display[
-                        [
-                            "line_of_business_standard",
-                            "year",
-                            "siniestralidad_display",
-                            "loss_ratio_change_display",
-                        ]
-                    ],
-                    width="stretch"
-                )
-
-            render_section_header("Reinsurance Indicators", "Exploratory indicators from Indicadores de Gestión when available.")
-            st.write(brief["reinsurance_text"])
-
-            render_section_header("Key Alerts")
-            for alert in brief["alerts"]:
-                st.write(f"- {alert}")
-
-            render_section_header("Broker Questions")
-            for question in brief["questions"]:
-                st.write(f"- {question}")
-
-        with col_b:
-            render_section_header("Quick Indicators")
-
-            company_summary = prepare_premium_claims_summary(company_df, ["year"])
-
-            if not company_summary.empty:
-                latest_year = int(company_summary["year"].max())
-                latest_row = company_summary[company_summary["year"] == latest_year]
-
-                latest_premium = latest_row["primas"].sum()
-                latest_claims = latest_row["siniestros"].sum()
-                latest_lr = latest_claims / latest_premium if latest_premium else None
-
-                render_metric_card("Year", str(latest_year))
-                render_metric_card("Premiums", format_millions(latest_premium))
-                render_metric_card("Claims", format_millions(latest_claims))
-                render_metric_card("Loss ratio", format_percentage(latest_lr))
-
-            if company_reinsurance_summary.get("available"):
-                render_section_header("Reinsurance")
-                render_metric_card("Cession ratio", format_percentage(company_reinsurance_summary["cession_ratio"]))
-                render_metric_card("Retention ratio", format_percentage(company_reinsurance_summary["retention_ratio"]))
-                render_metric_card("Ceded premium", format_millions(company_reinsurance_summary["reinsurance_ceded_premium"]))
-            else:
-                st.info("Reinsurance indicators not available for this selection.")
-
-            render_section_header("Data Source")
-            st.write(f"Source: {brief['source']['source']}")
-            st.write(f"Period: {brief['source']['period']}")
-            st.write(f"Records: {brief['source']['records']:,}")
-
-        st.divider()
-
-        st.markdown("### Company One-Pager")
-
-        one_pager_markdown = render_one_pager_markdown(
-            brief,
-            company=selected_company,
-            country=selected_country,
-        )
-        one_pager_html = render_markdown_as_html(
-            one_pager_markdown,
-            title=f"{selected_company} one-pager",
-        )
-
-        chart_col_a, chart_col_b = st.columns(2)
-
-        with chart_col_a:
-            if not brief["premium_evolution"].empty:
-                chart_data = brief["premium_evolution"].copy()
-                chart_data["primas_mm"] = chart_data["primas"] / 1_000_000
-                fig_one_pager_premium = px.line(
-                    chart_data,
-                    x="year",
-                    y="primas_mm",
-                    markers=True,
-                    title="Premium evolution",
-                    labels={"year": "Year", "primas_mm": "Premiums in COP MM"},
-                )
-                fix_year_axis(fig_one_pager_premium, chart_data["year"].unique())
-                st.plotly_chart(fig_one_pager_premium, width="stretch")
-
-        with chart_col_b:
-            if not brief["main_lines"].empty:
-                chart_lines = brief["main_lines"].copy()
-                chart_lines["premium_mm"] = chart_lines["gross_written_premium"] / 1_000_000
-                fig_one_pager_lines = px.bar(
-                    chart_lines,
-                    x="line_of_business_standard",
-                    y="premium_mm",
-                    title="Top lines of business",
-                    labels={
-                        "line_of_business_standard": "Line",
-                        "premium_mm": "Premiums in COP MM",
-                    },
-                )
-                st.plotly_chart(fig_one_pager_lines, width="stretch")
-
-        with st.expander("Preview one-pager markdown", expanded=False):
-            st.code(one_pager_markdown, language="markdown")
-
-        col_export_a, col_export_b, col_export_c = st.columns(3)
-
-        with col_export_a:
-            st.download_button(
-                label="Download company brief markdown",
-                data=brief["markdown"],
-                file_name=f"{selected_company.lower().replace(' ', '_')}_company_brief.md",
-                mime="text/markdown",
-                key="company_brief_tab_download_brief_md",
+            one_pager_html = render_markdown_as_html(
+                one_pager_markdown,
+                title=f"{selected_company} one-pager",
             )
 
-        with col_export_b:
-            st.download_button(
-                label="Download one-pager markdown",
-                data=one_pager_markdown,
-                file_name=f"{selected_company.lower().replace(' ', '_')}_one_pager.md",
-                mime="text/markdown",
-                key="company_brief_tab_download_one_pager_md",
-            )
+            chart_col_a, chart_col_b = st.columns(2)
 
-        with col_export_c:
-            st.download_button(
-                label="Download one-pager HTML",
-                data=one_pager_html,
-                file_name=f"{selected_company.lower().replace(' ', '_')}_one_pager.html",
-                mime="text/html",
-                key="company_brief_tab_download_one_pager_html",
-            )
+            with chart_col_a:
+                if not brief["premium_evolution"].empty:
+                    chart_data = brief["premium_evolution"].copy()
+                    chart_data["primas_mm"] = chart_data["primas"] / 1_000_000
+                    fig_one_pager_premium = px.line(
+                        chart_data,
+                        x="year",
+                        y="primas_mm",
+                        markers=True,
+                        title="Premium evolution",
+                        labels={"year": "Year", "primas_mm": "Premiums in COP MM"},
+                    )
+                    fix_year_axis(fig_one_pager_premium, chart_data["year"].unique())
+                    st.plotly_chart(fig_one_pager_premium, width="stretch")
 
-        st.warning(
-            "Methodology note: this brief is generated from structured public market data. "
-            "Indicadores de Gestión 2025 remains exploratory and should be validated before client use."
-        )
+            with chart_col_b:
+                if not brief["main_lines"].empty:
+                    chart_lines = brief["main_lines"].copy()
+                    chart_lines["premium_mm"] = chart_lines["gross_written_premium"] / 1_000_000
+                    fig_one_pager_lines = px.bar(
+                        chart_lines,
+                        x="line_of_business_standard",
+                        y="premium_mm",
+                        title="Top lines of business",
+                        labels={
+                            "line_of_business_standard": "Line",
+                            "premium_mm": "Premiums in COP MM",
+                        },
+                    )
+                    st.plotly_chart(fig_one_pager_lines, width="stretch")
+
+            with st.expander("Preview one-pager markdown", expanded=False):
+                st.code(one_pager_markdown, language="markdown")
+
+            col_export_a, col_export_b, col_export_c = st.columns(3)
+
+            with col_export_a:
+                st.download_button(
+                    label="Download company brief markdown",
+                    data=brief["markdown"],
+                    file_name=f"{selected_company.lower().replace(' ', '_')}_company_brief.md",
+                    mime="text/markdown",
+                    key="company_brief_tab_download_brief_md",
+                )
+
+            with col_export_b:
+                st.download_button(
+                    label="Download one-pager markdown",
+                    data=one_pager_markdown,
+                    file_name=f"{selected_company.lower().replace(' ', '_')}_one_pager.md",
+                    mime="text/markdown",
+                    key="company_brief_tab_download_one_pager_md",
+                )
+
+            with col_export_c:
+                st.download_button(
+                    label="Download one-pager HTML",
+                    data=one_pager_html,
+                    file_name=f"{selected_company.lower().replace(' ', '_')}_one_pager.html",
+                    mime="text/html",
+                    key="company_brief_tab_download_one_pager_html",
+                )
+
+            st.warning(
+                "Methodology note: this brief is generated from structured public market data. "
+                "Indicadores de Gestión 2025 remains exploratory and should be validated before client use."
+            )
+    except Exception as exc:
+        render_section_error(exc)
 
 # ============================================================
 # TAB 5 — AI BRIEF
 # ============================================================
 
 if selected_view == "AI Brief":
-    indicadores_df = load_indicadores_gestion_2025()
+    try:
+        indicadores_df = load_indicadores_gestion_2025()
 
-    st.subheader("AI Brief")
-    st.caption(
-        "Optional controlled AI layer. It uses only structured data retrieved from DuckDB "
-        "or calculated by the app."
-    )
-
-    ai_config = get_ai_config()
-
-    if ai_config.configured:
-        st.success(ai_config.status_message)
-    else:
-        st.info("AI features are not configured yet.")
-        st.write(
-            "Configure one approved provider with environment variables such as "
-            "`OPENAI_API_KEY` or `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, "
-            "and `AZURE_OPENAI_DEPLOYMENT`."
+        st.subheader("AI Brief")
+        st.caption(
+            "Optional controlled AI layer. It uses only structured data retrieved from DuckDB "
+            "or calculated by the app."
         )
 
-    ai_company_options = sorted(country_df["company_standard"].dropna().unique())
-    if selected_company != "TODAS" and selected_company in ai_company_options:
-        ai_company_index = ai_company_options.index(selected_company)
-    else:
-        ai_company_index = 0
+        ai_config = get_ai_config()
 
-    ai_line_options = ["TODOS"] + sorted(country_df["line_of_business_standard"].dropna().unique())
-    ai_line_index = ai_line_options.index(selected_line) if selected_line in ai_line_options else 0
+        if ai_config.configured:
+            st.success(ai_config.status_message)
+        else:
+            st.info("AI features are not configured yet.")
+            st.write(
+                "Configure one approved provider with environment variables such as "
+                "`OPENAI_API_KEY` or `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, "
+                "and `AZURE_OPENAI_DEPLOYMENT`."
+            )
 
-    ai_col_a, ai_col_b = st.columns(2)
+        ai_company_options = sorted(country_df["company_standard"].dropna().unique())
+        if selected_company != "TODAS" and selected_company in ai_company_options:
+            ai_company_index = ai_company_options.index(selected_company)
+        else:
+            ai_company_index = 0
 
-    with ai_col_a:
-        ai_company = st.selectbox(
-            "Company for AI brief",
-            ai_company_options,
-            index=ai_company_index,
-            key="ai_company_select",
-        )
-        ai_line = st.selectbox(
-            "Optional line of business",
-            ai_line_options,
-            index=ai_line_index,
-            key="ai_line_select",
-        )
+        ai_line_options = ["TODOS"] + sorted(country_df["line_of_business_standard"].dropna().unique())
+        ai_line_index = ai_line_options.index(selected_line) if selected_line in ai_line_options else 0
 
-    with ai_col_b:
-        ai_years = st.multiselect(
-            "Years for AI brief",
-            years,
-            default=selected_years,
-            key="ai_years_select",
-        )
-        if not ai_years:
-            st.warning("Select at least one year for the AI context. Using the latest available year for now.")
-            ai_years = [max(years)]
-        meeting_purpose = st.text_input(
-            "Meeting purpose",
-            value="Client meeting preparation",
-            key="ai_meeting_purpose",
-        )
+        ai_col_a, ai_col_b = st.columns(2)
 
-    ai_company_df = country_df[
-        (country_df["company_standard"] == ai_company) &
-        (country_df["year"].isin(ai_years))
-    ].copy()
+        with ai_col_a:
+            ai_company = st.selectbox(
+                "Company for AI brief",
+                ai_company_options,
+                index=ai_company_index,
+                key="ai_company_select",
+            )
+            ai_line = st.selectbox(
+                "Optional line of business",
+                ai_line_options,
+                index=ai_line_index,
+                key="ai_line_select",
+            )
 
-    if ai_line != "TODOS":
-        ai_company_df = ai_company_df[
-            ai_company_df["line_of_business_standard"] == ai_line
-        ]
+        with ai_col_b:
+            ai_years = st.multiselect(
+                "Years for AI brief",
+                years,
+                default=selected_years,
+                key="ai_years_select",
+            )
+            if not ai_years:
+                st.warning("Select at least one year for the AI context. Using the latest available year for now.")
+                ai_years = [max(years)]
+            meeting_purpose = st.text_input(
+                "Meeting purpose",
+                value="Client meeting preparation",
+                key="ai_meeting_purpose",
+            )
 
-    ai_market_df = country_df[country_df["year"].isin(ai_years)].copy()
-    if ai_line != "TODOS":
-        ai_market_df = ai_market_df[
-            ai_market_df["line_of_business_standard"] == ai_line
-        ]
+        ai_company_df = country_df[
+            (country_df["company_standard"] == ai_company) &
+            (country_df["year"].isin(ai_years))
+        ].copy()
 
-    ai_mapped_company = map_company_using_mapping_table(
-        ai_company,
-        target_source="FASECOLDA - INDICADORES DE GESTION",
-        country=selected_country,
-    )
+        if ai_line != "TODOS":
+            ai_company_df = ai_company_df[
+                ai_company_df["line_of_business_standard"] == ai_line
+            ]
 
-    ai_mapped_line = None
-    if ai_line != "TODOS":
-        ai_mapped_line = map_lob_using_mapping_table(
-            ai_line,
+        ai_market_df = country_df[country_df["year"].isin(ai_years)].copy()
+        if ai_line != "TODOS":
+            ai_market_df = ai_market_df[
+                ai_market_df["line_of_business_standard"] == ai_line
+            ]
+
+        ai_mapped_company = map_company_using_mapping_table(
+            ai_company,
             target_source="FASECOLDA - INDICADORES DE GESTION",
             country=selected_country,
         )
 
-    try:
-        ai_context = build_structured_ai_context(
-            country=selected_country,
-            company=ai_company,
-            selected_line=ai_line,
-            selected_years=ai_years,
-            meeting_purpose=meeting_purpose,
-            company_df=ai_company_df,
-            market_df=ai_market_df,
-            indicadores_df=indicadores_df,
-            mapped_company=ai_mapped_company,
-            mapped_line=ai_mapped_line,
-            minimum_premium=minimum_premium,
+        ai_mapped_line = None
+        if ai_line != "TODOS":
+            ai_mapped_line = map_lob_using_mapping_table(
+                ai_line,
+                target_source="FASECOLDA - INDICADORES DE GESTION",
+                country=selected_country,
+            )
+
+        try:
+            ai_context = build_structured_ai_context(
+                country=selected_country,
+                company=ai_company,
+                selected_line=ai_line,
+                selected_years=ai_years,
+                meeting_purpose=meeting_purpose,
+                company_df=ai_company_df,
+                market_df=ai_market_df,
+                indicadores_df=indicadores_df,
+                mapped_company=ai_mapped_company,
+                mapped_line=ai_mapped_line,
+                minimum_premium=minimum_premium,
+            )
+        except Exception as exc:
+            render_section_error(exc)
+            st.stop()
+
+        st.markdown("### Structured data context")
+        with st.expander("View context sent to AI", expanded=False):
+            st.code(context_to_json(ai_context), language="json")
+
+        st.markdown("### Generate AI Brief")
+
+        if st.button(
+            "Generate AI brief",
+            disabled=not ai_config.configured,
+            key="generate_ai_brief_button",
+        ):
+            with st.spinner("Generating controlled AI brief..."):
+                ai_result = generate_ai_brief(ai_config, ai_context)
+            if ai_result["ok"]:
+                st.markdown(ai_result["text"])
+            else:
+                st.warning(ai_result["text"])
+                if ai_result.get("error") and ai_result["error"] != "missing_configuration":
+                    st.caption(ai_result["error"])
+
+        st.markdown("### Ask the Data")
+        st.caption(
+            "First version uses controlled templates and safe pandas calculations. "
+            "It does not allow arbitrary SQL or model-generated queries."
+        )
+
+        ask_question = st.text_input(
+            "Question",
+            value="Which companies grew the most in transport in 2025?",
+            key="ask_data_question",
+        )
+
+        if st.button("Ask the data", key="ask_data_button"):
+            ask_answer = answer_ask_data(
+                question=ask_question,
+                market_df=country_df[country_df["year"].isin(ai_years)].copy(),
+                indicadores_df=indicadores_df,
+                country=selected_country,
+                selected_company=ai_company,
+                selected_line=ai_line,
+                selected_years=ai_years,
+                minimum_premium=minimum_premium,
+            )
+            if ask_answer["answered"]:
+                st.markdown(ask_answer["answer"])
+            else:
+                st.warning(ask_answer["answer"])
+
+        st.markdown("### AI Meeting Prep")
+
+        meeting_type = st.selectbox(
+            "Meeting type",
+            ["renewal", "prospect", "market update", "technical discussion"],
+            key="ai_meeting_type",
+        )
+        ai_context["scope"]["meeting_type"] = meeting_type
+
+        if st.button(
+            "Generate AI meeting prep",
+            disabled=not ai_config.configured,
+            key="generate_ai_meeting_prep_button",
+        ):
+            with st.spinner("Generating controlled AI meeting prep..."):
+                prep_result = generate_ai_meeting_prep(ai_config, ai_context)
+            if prep_result["ok"]:
+                st.markdown(prep_result["text"])
+            else:
+                st.warning(prep_result["text"])
+                if prep_result.get("error") and prep_result["error"] != "missing_configuration":
+                    st.caption(prep_result["error"])
+
+        st.warning(
+            "AI guardrails: outputs must cite source and period, use only structured context, "
+            "distinguish observed data from interpretation, and avoid legal or financial advice."
         )
     except Exception as exc:
         render_section_error(exc)
-        st.stop()
-
-    st.markdown("### Structured data context")
-    with st.expander("View context sent to AI", expanded=False):
-        st.code(context_to_json(ai_context), language="json")
-
-    st.markdown("### Generate AI Brief")
-
-    if st.button(
-        "Generate AI brief",
-        disabled=not ai_config.configured,
-        key="generate_ai_brief_button",
-    ):
-        with st.spinner("Generating controlled AI brief..."):
-            ai_result = generate_ai_brief(ai_config, ai_context)
-        if ai_result["ok"]:
-            st.markdown(ai_result["text"])
-        else:
-            st.warning(ai_result["text"])
-            if ai_result.get("error") and ai_result["error"] != "missing_configuration":
-                st.caption(ai_result["error"])
-
-    st.markdown("### Ask the Data")
-    st.caption(
-        "First version uses controlled templates and safe pandas calculations. "
-        "It does not allow arbitrary SQL or model-generated queries."
-    )
-
-    ask_question = st.text_input(
-        "Question",
-        value="Which companies grew the most in transport in 2025?",
-        key="ask_data_question",
-    )
-
-    if st.button("Ask the data", key="ask_data_button"):
-        ask_answer = answer_ask_data(
-            question=ask_question,
-            market_df=country_df[country_df["year"].isin(ai_years)].copy(),
-            indicadores_df=indicadores_df,
-            country=selected_country,
-            selected_company=ai_company,
-            selected_line=ai_line,
-            selected_years=ai_years,
-            minimum_premium=minimum_premium,
-        )
-        if ask_answer["answered"]:
-            st.markdown(ask_answer["answer"])
-        else:
-            st.warning(ask_answer["answer"])
-
-    st.markdown("### AI Meeting Prep")
-
-    meeting_type = st.selectbox(
-        "Meeting type",
-        ["renewal", "prospect", "market update", "technical discussion"],
-        key="ai_meeting_type",
-    )
-    ai_context["scope"]["meeting_type"] = meeting_type
-
-    if st.button(
-        "Generate AI meeting prep",
-        disabled=not ai_config.configured,
-        key="generate_ai_meeting_prep_button",
-    ):
-        with st.spinner("Generating controlled AI meeting prep..."):
-            prep_result = generate_ai_meeting_prep(ai_config, ai_context)
-        if prep_result["ok"]:
-            st.markdown(prep_result["text"])
-        else:
-            st.warning(prep_result["text"])
-            if prep_result.get("error") and prep_result["error"] != "missing_configuration":
-                st.caption(prep_result["error"])
-
-    st.warning(
-        "AI guardrails: outputs must cite source and period, use only structured context, "
-        "distinguish observed data from interpretation, and avoid legal or financial advice."
-    )
 
 # ============================================================
 # TAB 6 — NEWS
 # ============================================================
 
 if selected_view == "News":
-    st.subheader("News")
-    st.caption(
-        "Optional source-based company and market news for broker meeting preparation."
-    )
-
-    news_config = get_news_config()
-    ai_config_for_news = get_ai_config()
-
-    if news_config.configured:
-        st.success(news_config.status_message)
-    else:
-        st.info("News module not configured.")
-        st.write(
-            "Configure an approved provider with `NEWS_API_KEY`, `BING_SEARCH_API_KEY`, "
-            "`SERPAPI_API_KEY`, or `GOOGLE_SEARCH_API_KEY` plus `GOOGLE_SEARCH_ENGINE_ID`."
+    try:
+        st.subheader("News")
+        st.caption(
+            "Optional source-based company and market news for broker meeting preparation."
         )
 
-    news_col_a, news_col_b, news_col_c = st.columns([2, 2, 1])
+        news_config = get_news_config()
+        ai_config_for_news = get_ai_config()
 
-    with news_col_a:
-        news_company_options = sorted(country_df["company_standard"].dropna().unique())
-        news_company_index = (
-            news_company_options.index(selected_company)
-            if selected_company in news_company_options
-            else 0
-        )
-        news_company = st.selectbox(
-            "Company news focus",
-            news_company_options,
-            index=news_company_index,
-            key="news_company_select",
-        )
-
-    with news_col_b:
-        news_limit = st.slider(
-            "News items",
-            min_value=3,
-            max_value=15,
-            value=8,
-            step=1,
-            key="news_limit_slider",
-        )
-
-    with news_col_c:
-        refresh_news = st.button(
-            "Refresh news",
-            disabled=not news_config.configured,
-            key="refresh_news_button",
-        )
-
-    st.markdown("### Company News")
-
-    company_news_query = build_company_news_query(news_company, selected_country.title())
-    st.caption(f"Query: {company_news_query}")
-
-    company_news_result = fetch_news(
-        news_config,
-        query=company_news_query,
-        scope=f"Company news for {news_company}",
-        limit=news_limit,
-        refresh=refresh_news,
-    )
-
-    if not company_news_result["configured"]:
-        st.warning("News module not configured.")
-    else:
-        st.caption(company_news_result["message"])
-
-    company_news_items = company_news_result["items"]
-
-    if company_news_items:
-        for idx, item in enumerate(company_news_items, start=1):
-            with st.container():
-                st.markdown(f"#### {idx}. [{item['title']}]({item['link']})")
-                st.write(f"Source: {item['source']} | Date: {item['date']}")
-                st.write(item["summary"])
-                st.info(f"Broker relevance: {item['relevance']}")
-
-        company_news_df = news_items_to_dataframe(company_news_items)
-        st.download_button(
-            label="Download company news CSV",
-            data=company_news_df.to_csv(index=False, encoding="utf-8-sig"),
-            file_name=f"{news_company.lower().replace(' ', '_')}_news.csv",
-            mime="text/csv",
-            key="download_company_news_csv",
-        )
-
-        if ai_config_for_news.configured:
-            if st.button("Generate AI company news summary", key="ai_company_news_summary_button"):
-                with st.spinner("Summarizing news with AI..."):
-                    news_ai_summary = generate_news_ai_summary(
-                        ai_config_for_news,
-                        company_news_items,
-                        scope=f"Company news for {news_company}",
-                    )
-                if news_ai_summary["ok"]:
-                    st.markdown(news_ai_summary["text"])
-                else:
-                    st.warning(news_ai_summary["text"])
+        if news_config.configured:
+            st.success(news_config.status_message)
         else:
-            st.info("AI features are not configured yet.")
-    elif company_news_result["configured"]:
-        st.info("No company news returned by the configured provider.")
+            st.info("News module not configured.")
+            st.write(
+                "Configure an approved provider with `NEWS_API_KEY`, `BING_SEARCH_API_KEY`, "
+                "`SERPAPI_API_KEY`, or `GOOGLE_SEARCH_API_KEY` plus `GOOGLE_SEARCH_ENGINE_ID`."
+            )
 
-    st.divider()
+        news_col_a, news_col_b, news_col_c = st.columns([2, 2, 1])
 
-    st.markdown("### Market Signals / News")
+        with news_col_a:
+            news_company_options = sorted(country_df["company_standard"].dropna().unique())
+            news_company_index = (
+                news_company_options.index(selected_company)
+                if selected_company in news_company_options
+                else 0
+            )
+            news_company = st.selectbox(
+                "Company news focus",
+                news_company_options,
+                index=news_company_index,
+                key="news_company_select",
+            )
 
-    market_news_query = build_market_news_query(selected_country.title())
-    st.caption(f"Query: {market_news_query}")
+        with news_col_b:
+            news_limit = st.slider(
+                "News items",
+                min_value=3,
+                max_value=15,
+                value=8,
+                step=1,
+                key="news_limit_slider",
+            )
 
-    market_news_result = fetch_news(
-        news_config,
-        query=market_news_query,
-        scope=f"Market news for {selected_country}",
-        limit=news_limit,
-        refresh=refresh_news,
-    )
+        with news_col_c:
+            refresh_news = st.button(
+                "Refresh news",
+                disabled=not news_config.configured,
+                key="refresh_news_button",
+            )
 
-    if market_news_result["configured"]:
-        st.caption(market_news_result["message"])
+        st.markdown("### Company News")
 
-    market_news_items = market_news_result["items"]
+        company_news_query = build_company_news_query(news_company, selected_country.title())
+        st.caption(f"Query: {company_news_query}")
 
-    if market_news_items:
-        for idx, item in enumerate(market_news_items, start=1):
-            with st.container():
-                st.markdown(f"#### {idx}. [{item['title']}]({item['link']})")
-                st.write(f"Source: {item['source']} | Date: {item['date']}")
-                st.write(item["summary"])
-                st.info(f"Broker relevance: {item['relevance']}")
-
-        market_news_df = news_items_to_dataframe(market_news_items)
-        st.download_button(
-            label="Download market news CSV",
-            data=market_news_df.to_csv(index=False, encoding="utf-8-sig"),
-            file_name=f"{selected_country.lower()}_market_news.csv",
-            mime="text/csv",
-            key="download_market_news_csv",
+        company_news_result = fetch_news(
+            news_config,
+            query=company_news_query,
+            scope=f"Company news for {news_company}",
+            limit=news_limit,
+            refresh=refresh_news,
         )
 
-        if ai_config_for_news.configured:
-            if st.button("Generate AI market news summary", key="ai_market_news_summary_button"):
-                with st.spinner("Summarizing market news with AI..."):
-                    market_news_ai_summary = generate_news_ai_summary(
-                        ai_config_for_news,
-                        market_news_items,
-                        scope=f"Market news for {selected_country}",
-                    )
-                if market_news_ai_summary["ok"]:
-                    st.markdown(market_news_ai_summary["text"])
-                else:
-                    st.warning(market_news_ai_summary["text"])
-    elif market_news_result["configured"]:
-        st.info("No market news returned by the configured provider.")
+        if not company_news_result["configured"]:
+            st.warning("News module not configured.")
+        else:
+            st.caption(company_news_result["message"])
 
-    st.warning(
-        "News note: items come from the configured search/news provider and should be verified "
-        "against the original source before client use. News summaries are source-based and optional."
-    )
+        company_news_items = company_news_result["items"]
+
+        if company_news_items:
+            for idx, item in enumerate(company_news_items, start=1):
+                with st.container():
+                    st.markdown(f"#### {idx}. [{item['title']}]({item['link']})")
+                    st.write(f"Source: {item['source']} | Date: {item['date']}")
+                    st.write(item["summary"])
+                    st.info(f"Broker relevance: {item['relevance']}")
+
+            company_news_df = news_items_to_dataframe(company_news_items)
+            st.download_button(
+                label="Download company news CSV",
+                data=company_news_df.to_csv(index=False, encoding="utf-8-sig"),
+                file_name=f"{news_company.lower().replace(' ', '_')}_news.csv",
+                mime="text/csv",
+                key="download_company_news_csv",
+            )
+
+            if ai_config_for_news.configured:
+                if st.button("Generate AI company news summary", key="ai_company_news_summary_button"):
+                    with st.spinner("Summarizing news with AI..."):
+                        news_ai_summary = generate_news_ai_summary(
+                            ai_config_for_news,
+                            company_news_items,
+                            scope=f"Company news for {news_company}",
+                        )
+                    if news_ai_summary["ok"]:
+                        st.markdown(news_ai_summary["text"])
+                    else:
+                        st.warning(news_ai_summary["text"])
+            else:
+                st.info("AI features are not configured yet.")
+        elif company_news_result["configured"]:
+            st.info("No company news returned by the configured provider.")
+
+        st.divider()
+
+        st.markdown("### Market Signals / News")
+
+        market_news_query = build_market_news_query(selected_country.title())
+        st.caption(f"Query: {market_news_query}")
+
+        market_news_result = fetch_news(
+            news_config,
+            query=market_news_query,
+            scope=f"Market news for {selected_country}",
+            limit=news_limit,
+            refresh=refresh_news,
+        )
+
+        if market_news_result["configured"]:
+            st.caption(market_news_result["message"])
+
+        market_news_items = market_news_result["items"]
+
+        if market_news_items:
+            for idx, item in enumerate(market_news_items, start=1):
+                with st.container():
+                    st.markdown(f"#### {idx}. [{item['title']}]({item['link']})")
+                    st.write(f"Source: {item['source']} | Date: {item['date']}")
+                    st.write(item["summary"])
+                    st.info(f"Broker relevance: {item['relevance']}")
+
+            market_news_df = news_items_to_dataframe(market_news_items)
+            st.download_button(
+                label="Download market news CSV",
+                data=market_news_df.to_csv(index=False, encoding="utf-8-sig"),
+                file_name=f"{selected_country.lower()}_market_news.csv",
+                mime="text/csv",
+                key="download_market_news_csv",
+            )
+
+            if ai_config_for_news.configured:
+                if st.button("Generate AI market news summary", key="ai_market_news_summary_button"):
+                    with st.spinner("Summarizing market news with AI..."):
+                        market_news_ai_summary = generate_news_ai_summary(
+                            ai_config_for_news,
+                            market_news_items,
+                            scope=f"Market news for {selected_country}",
+                        )
+                    if market_news_ai_summary["ok"]:
+                        st.markdown(market_news_ai_summary["text"])
+                    else:
+                        st.warning(market_news_ai_summary["text"])
+        elif market_news_result["configured"]:
+            st.info("No market news returned by the configured provider.")
+
+        st.warning(
+            "News note: items come from the configured search/news provider and should be verified "
+            "against the original source before client use. News summaries are source-based and optional."
+        )
+    except Exception as exc:
+        render_section_error(exc)
 
 # ============================================================
 # TAB 7 — TECHNICAL SIGNALS
 # ============================================================
 
 if selected_view == "Technical Signals":
-    indicadores_df = load_indicadores_gestion_2025()
-
-    st.subheader("Technical Signals")
-    st.caption("Broker-focused signals for market monitoring and meeting preparation.")
-
-    latest_year = max(selected_years) if selected_years else country_df["year"].max()
-
     try:
-        technical_signals_df = build_technical_signals(
-            market_df=filtered_df,
-            indicadores_df=indicadores_df,
-            country=selected_country,
-            latest_year=latest_year,
-            minimum_premium=minimum_premium,
-        )
-    except Exception as exc:
-        render_section_error(exc)
-        st.stop()
+        indicadores_df = load_indicadores_gestion_2025()
 
-    st.markdown("### Broker-relevant signal table")
+        st.subheader("Technical Signals")
+        st.caption("Broker-focused signals for market monitoring and meeting preparation.")
 
-    if technical_signals_df.empty:
-        st.info("Data not available for technical signals under the selected filters.")
-    else:
-        signal_display = technical_signals_df.copy()
-        signal_display["metric_display"] = signal_display.apply(
-            lambda row: format_percentage(row["metric_value"])
-            if any(
-                token in row["signal_type"].lower()
-                for token in ["growth", "ratio", "share"]
+        latest_year = max(selected_years) if selected_years else country_df["year"].max()
+
+        try:
+            technical_signals_df = build_technical_signals(
+                market_df=filtered_df,
+                indicadores_df=indicadores_df,
+                country=selected_country,
+                latest_year=latest_year,
+                minimum_premium=minimum_premium,
             )
-            else format_millions(row["metric_value"]),
-            axis=1,
-        )
-        st.dataframe(
-            signal_display[
-                [
-                    "signal_type",
-                    "metric_display",
-                    "year",
-                    "company",
-                    "line_of_business",
-                    "explanation",
-                    "source",
-                ]
-            ],
-            width="stretch",
-        )
+        except Exception as exc:
+            render_section_error(exc)
+            st.stop()
 
-        watchlist_display = signal_display[signal_display["signal_type"] == "Broker watchlist"]
-        if not watchlist_display.empty:
-            st.markdown("### Broker watchlist")
+        st.markdown("### Broker-relevant signal table")
+
+        if technical_signals_df.empty:
+            st.info("Data not available for technical signals under the selected filters.")
+        else:
+            signal_display = technical_signals_df.copy()
+            signal_display["metric_display"] = signal_display.apply(
+                lambda row: format_percentage(row["metric_value"])
+                if any(
+                    token in row["signal_type"].lower()
+                    for token in ["growth", "ratio", "share"]
+                )
+                else format_millions(row["metric_value"]),
+                axis=1,
+            )
             st.dataframe(
-                watchlist_display[
+                signal_display[
                     [
+                        "signal_type",
                         "metric_display",
                         "year",
                         "company",
@@ -1987,143 +2021,162 @@ if selected_view == "Technical Signals":
                         "explanation",
                         "source",
                     ]
-                ].head(20),
+                ],
                 width="stretch",
             )
 
-        signals_csv = technical_signals_df.to_csv(index=False, encoding="utf-8-sig")
-        st.download_button(
-            label="Download technical signals CSV",
-            data=signals_csv,
-            file_name="technical_signals.csv",
-            mime="text/csv",
-            key="technical_signals_download_csv",
+            watchlist_display = signal_display[signal_display["signal_type"] == "Broker watchlist"]
+            if not watchlist_display.empty:
+                st.markdown("### Broker watchlist")
+                st.dataframe(
+                    watchlist_display[
+                        [
+                            "metric_display",
+                            "year",
+                            "company",
+                            "line_of_business",
+                            "explanation",
+                            "source",
+                        ]
+                    ].head(20),
+                    width="stretch",
+                )
+
+            signals_csv = technical_signals_df.to_csv(index=False, encoding="utf-8-sig")
+            st.download_button(
+                label="Download technical signals CSV",
+                data=signals_csv,
+                file_name="technical_signals.csv",
+                mime="text/csv",
+                key="technical_signals_download_csv",
+            )
+
+        st.markdown("### Compañías con mayor crecimiento anual de primas")
+
+        company_year = prepare_premium_claims_summary(filtered_df, ["company_standard", "year"])
+        company_year = company_year.sort_values(["company_standard", "year"])
+        company_year["premium_growth"] = company_year.groupby("company_standard")["primas"].pct_change()
+
+        company_latest_growth = (
+            company_year[
+                (company_year["year"] == latest_year) &
+                (company_year["primas"] >= minimum_premium)
+            ]
+            .dropna(subset=["premium_growth"])
+            .sort_values("premium_growth", ascending=False)
+            .head(15)
         )
 
-    st.markdown("### Compañías con mayor crecimiento anual de primas")
-
-    company_year = prepare_premium_claims_summary(filtered_df, ["company_standard", "year"])
-    company_year = company_year.sort_values(["company_standard", "year"])
-    company_year["premium_growth"] = company_year.groupby("company_standard")["primas"].pct_change()
-
-    company_latest_growth = (
-        company_year[
-            (company_year["year"] == latest_year) &
-            (company_year["primas"] >= minimum_premium)
-        ]
-        .dropna(subset=["premium_growth"])
-        .sort_values("premium_growth", ascending=False)
-        .head(15)
-    )
-
-    if not company_latest_growth.empty:
-        fig_top_growth = px.bar(
-            company_latest_growth,
-            x="company_standard",
-            y="premium_growth",
-            title=f"Top crecimiento de primas por compañía — {latest_year}",
-            labels={
-                "company_standard": "Compañía",
-                "premium_growth": "Crecimiento"
-            }
-        )
-
-        fig_top_growth.update_yaxes(tickformat=".1%")
-        st.plotly_chart(fig_top_growth, width="stretch")
-    else:
-        st.info("No hay datos suficientes para mostrar crecimiento con el umbral seleccionado.")
-
-    col_a, col_b = st.columns(2)
-
-    with col_a:
-        st.markdown("### Compañías con mayor siniestralidad")
-
-        company_lr = prepare_premium_claims_summary(filtered_df, ["company_standard"])
-        company_lr = company_lr[company_lr["primas"] >= minimum_premium]
-        company_lr = company_lr.sort_values("siniestralidad", ascending=False).head(15)
-        company_lr["primas_mm"] = company_lr["primas"] / 1_000_000
-
-        if not company_lr.empty:
-            fig_company_high_lr = px.bar(
-                company_lr,
+        if not company_latest_growth.empty:
+            fig_top_growth = px.bar(
+                company_latest_growth,
                 x="company_standard",
-                y="siniestralidad",
-                title="Top compañías por siniestralidad",
+                y="premium_growth",
+                title=f"Top crecimiento de primas por compañía — {latest_year}",
                 labels={
                     "company_standard": "Compañía",
-                    "siniestralidad": "Siniestralidad"
-                },
-                hover_data=["primas_mm"]
+                    "premium_growth": "Crecimiento"
+                }
             )
 
-            fig_company_high_lr.update_yaxes(tickformat=".1%")
-            st.plotly_chart(fig_company_high_lr, width="stretch")
+            fig_top_growth.update_yaxes(tickformat=".1%")
+            st.plotly_chart(fig_top_growth, width="stretch")
         else:
-            st.info("No hay compañías que superen el umbral mínimo de primas seleccionado.")
+            st.info("No hay datos suficientes para mostrar crecimiento con el umbral seleccionado.")
 
-    with col_b:
-        st.markdown("### Ramos con mayor siniestralidad")
+        col_a, col_b = st.columns(2)
 
-        line_lr = prepare_premium_claims_summary(filtered_df, ["line_of_business_standard"])
-        line_lr = line_lr[line_lr["primas"] >= minimum_premium]
-        line_lr = line_lr.sort_values("siniestralidad", ascending=False).head(15)
-        line_lr["primas_mm"] = line_lr["primas"] / 1_000_000
+        with col_a:
+            st.markdown("### Compañías con mayor siniestralidad")
 
-        if not line_lr.empty:
-            fig_line_high_lr = px.bar(
-                line_lr,
-                x="line_of_business_standard",
-                y="siniestralidad",
-                title="Top ramos por siniestralidad",
-                labels={
-                    "line_of_business_standard": "Ramo",
-                    "siniestralidad": "Siniestralidad"
-                },
-                hover_data=["primas_mm"]
-            )
+            company_lr = prepare_premium_claims_summary(filtered_df, ["company_standard"])
+            company_lr = company_lr[company_lr["primas"] >= minimum_premium]
+            company_lr = company_lr.sort_values("siniestralidad", ascending=False).head(15)
+            company_lr["primas_mm"] = company_lr["primas"] / 1_000_000
 
-            fig_line_high_lr.update_yaxes(tickformat=".1%")
-            st.plotly_chart(fig_line_high_lr, width="stretch")
-        else:
-            st.info("No hay ramos que superen el umbral mínimo de primas seleccionado.")
+            if not company_lr.empty:
+                fig_company_high_lr = px.bar(
+                    company_lr,
+                    x="company_standard",
+                    y="siniestralidad",
+                    title="Top compañías por siniestralidad",
+                    labels={
+                        "company_standard": "Compañía",
+                        "siniestralidad": "Siniestralidad"
+                    },
+                    hover_data=["primas_mm"]
+                )
 
-    st.markdown("### Ramos con mayor crecimiento anual de primas")
+                fig_company_high_lr.update_yaxes(tickformat=".1%")
+                st.plotly_chart(fig_company_high_lr, width="stretch")
+            else:
+                st.info("No hay compañías que superen el umbral mínimo de primas seleccionado.")
 
-    line_year = prepare_premium_claims_summary(filtered_df, ["line_of_business_standard", "year"])
-    line_year = line_year.sort_values(["line_of_business_standard", "year"])
-    line_year["premium_growth"] = line_year.groupby("line_of_business_standard")["primas"].pct_change()
+        with col_b:
+            st.markdown("### Ramos con mayor siniestralidad")
 
-    line_latest_growth = (
-        line_year[
-            (line_year["year"] == latest_year) &
-            (line_year["primas"] >= minimum_premium)
-        ]
-        .dropna(subset=["premium_growth"])
-        .sort_values("premium_growth", ascending=False)
-        .head(15)
-    )
+            line_lr = prepare_premium_claims_summary(filtered_df, ["line_of_business_standard"])
+            line_lr = line_lr[line_lr["primas"] >= minimum_premium]
+            line_lr = line_lr.sort_values("siniestralidad", ascending=False).head(15)
+            line_lr["primas_mm"] = line_lr["primas"] / 1_000_000
 
-    if not line_latest_growth.empty:
-        fig_line_growth = px.bar(
-            line_latest_growth,
-            x="line_of_business_standard",
-            y="premium_growth",
-            title=f"Top crecimiento de primas por ramo — {latest_year}",
-            labels={
-                "line_of_business_standard": "Ramo",
-                "premium_growth": "Crecimiento"
-            }
+            if not line_lr.empty:
+                fig_line_high_lr = px.bar(
+                    line_lr,
+                    x="line_of_business_standard",
+                    y="siniestralidad",
+                    title="Top ramos por siniestralidad",
+                    labels={
+                        "line_of_business_standard": "Ramo",
+                        "siniestralidad": "Siniestralidad"
+                    },
+                    hover_data=["primas_mm"]
+                )
+
+                fig_line_high_lr.update_yaxes(tickformat=".1%")
+                st.plotly_chart(fig_line_high_lr, width="stretch")
+            else:
+                st.info("No hay ramos que superen el umbral mínimo de primas seleccionado.")
+
+        st.markdown("### Ramos con mayor crecimiento anual de primas")
+
+        line_year = prepare_premium_claims_summary(filtered_df, ["line_of_business_standard", "year"])
+        line_year = line_year.sort_values(["line_of_business_standard", "year"])
+        line_year["premium_growth"] = line_year.groupby("line_of_business_standard")["primas"].pct_change()
+
+        line_latest_growth = (
+            line_year[
+                (line_year["year"] == latest_year) &
+                (line_year["primas"] >= minimum_premium)
+            ]
+            .dropna(subset=["premium_growth"])
+            .sort_values("premium_growth", ascending=False)
+            .head(15)
         )
 
-        fig_line_growth.update_yaxes(tickformat=".1%")
-        st.plotly_chart(fig_line_growth, width="stretch")
-    else:
-        st.info("No hay datos suficientes para mostrar crecimiento por ramo con el umbral seleccionado.")
+        if not line_latest_growth.empty:
+            fig_line_growth = px.bar(
+                line_latest_growth,
+                x="line_of_business_standard",
+                y="premium_growth",
+                title=f"Top crecimiento de primas por ramo — {latest_year}",
+                labels={
+                    "line_of_business_standard": "Ramo",
+                    "premium_growth": "Crecimiento"
+                }
+            )
 
-    st.warning(
-        "Nota: estas señales son automáticas y deben interpretarse considerando tamaño de cartera, "
-        "cambios de clasificación, efectos extraordinarios y calidad de la información fuente."
-    )
+            fig_line_growth.update_yaxes(tickformat=".1%")
+            st.plotly_chart(fig_line_growth, width="stretch")
+        else:
+            st.info("No hay datos suficientes para mostrar crecimiento por ramo con el umbral seleccionado.")
+
+        st.warning(
+            "Nota: estas señales son automáticas y deben interpretarse considerando tamaño de cartera, "
+            "cambios de clasificación, efectos extraordinarios y calidad de la información fuente."
+        )
+    except Exception as exc:
+        render_section_error(exc)
 
 
 # ============================================================
@@ -2131,412 +2184,415 @@ if selected_view == "Technical Signals":
 # ============================================================
 
 if selected_view == "Reinsurance View":
-    indicadores_df = load_indicadores_gestion_2025()
-    indicadores_validation_df = load_indicadores_gestion_validation()
-    indicadores_validation_flags_df = load_indicadores_gestion_validation_flags()
+    try:
+        indicadores_df = load_indicadores_gestion_2025()
+        indicadores_validation_df = load_indicadores_gestion_validation()
+        indicadores_validation_flags_df = load_indicadores_gestion_validation_flags()
 
-    st.subheader("Reinsurance View")
-    st.caption(
-        "Vista exploratoria basada en Fasecolda - Indicadores de Gestión 2025. "
-        "Estos datos vienen de una fuente distinta a Ciudades y Ramos y deben validarse metodológicamente antes de usarse como dato final."
-    )
-    st.info(
-        "Metodología: fuente Fasecolda - Indicadores de Gestión 2025. "
-        "Estado: fuente complementaria exploratoria. "
-        "Los ratios se recalculan a nivel agregado y no se suman. "
-        "Los ramos agregados pueden duplicar ramos individuales y pueden excluirse de rankings. "
-        "La fuente requiere revisión metodológica adicional antes de integrarse al modelo regional core."
-    )
-
-    if indicadores_df.empty:
-        st.warning(
-            "No se encontró la tabla fact_indicadores_gestion_2025. "
-            "Ejecuta primero `python src\\load_indicadores_gestion_to_duckdb.py`."
+        st.subheader("Reinsurance View")
+        st.caption(
+            "Vista exploratoria basada en Fasecolda - Indicadores de Gestión 2025. "
+            "Estos datos vienen de una fuente distinta a Ciudades y Ramos y deben validarse metodológicamente antes de usarse como dato final."
         )
-    else:
-        exclude_aggregate_lines = st.checkbox(
-            "Exclude aggregate lines from rankings",
-            value=True,
-            help=(
-                "Excluye ramos con lob_group = AGGREGATE en el mapping formal "
-                "y totales como TOTAL DAÑOS, TOTAL PERSONAS y TOTAL SEGURIDAD SOCIAL."
-            )
-        )
-
-        indicadores_df["period_date"] = pd.to_datetime(indicadores_df["period_date"], errors="coerce")
-        indicadores_df["year"] = pd.to_numeric(indicadores_df["year"], errors="coerce").astype("Int64")
-        indicadores_df["metric_value"] = pd.to_numeric(indicadores_df["metric_value"], errors="coerce")
-
-        re_df = indicadores_df[indicadores_df["country"] == selected_country].copy()
-
-        # Normalizar textos para comparar mejor entre fuentes
-        re_df["company_standard_norm"] = re_df["company_standard"].astype(str).str.strip().str.upper()
-        re_df["line_of_business_standard_norm"] = re_df["line_of_business_standard"].astype(str).str.strip().str.upper()
-        aggregate_lob_lookup = get_aggregate_lob_lookup(
-            country=selected_country,
-            target_source="FASECOLDA - INDICADORES DE GESTION"
-        )
-        re_df["is_aggregate_lob"] = re_df["line_of_business_standard"].map(
-            lambda value: normalize_match_text(value) in aggregate_lob_lookup
-        )
-
-        # Filtros alineados con la barra lateral
-        if selected_company != "TODAS":
-            mapped_company = map_company_using_mapping_table(
-                selected_company,
-                target_source="FASECOLDA - INDICADORES DE GESTION",
-                country=selected_country
-            )
-
-            if mapped_company is None:
-                st.warning(
-                    f"La compañía seleccionada '{selected_company}' no tiene mapeo disponible "
-                    "en Indicadores de Gestión 2025. La vista de reaseguro se mostrará vacía "
-                    "hasta que agreguemos esta equivalencia al mapping de compañías."
-                )
-                re_df = re_df.iloc[0:0]
-            else:
-                mapped_company_norm = str(mapped_company).strip().upper()
-                re_df = re_df[re_df["company_standard_norm"] == mapped_company_norm]
-
-                if re_df.empty:
-                    st.warning(
-                        f"La compañía seleccionada '{selected_company}' fue mapeada como "
-                        f"'{mapped_company}', pero no se encontraron registros en Indicadores de Gestión 2025."
-                    )
-                else:
-                    st.info(
-                        f"Compañía mapeada para Indicadores de Gestión: "
-                        f"'{selected_company}' → '{mapped_company}'."
-                    )
-
-        if selected_line != "TODOS":
-            mapped_line = map_lob_using_mapping_table(
-                selected_line,
-                target_source="FASECOLDA - INDICADORES DE GESTION",
-                country=selected_country
-            )
-
-            if mapped_line is None:
-                st.warning(
-                    f"El ramo seleccionado '{selected_line}' no tiene mapeo disponible "
-                    "en Indicadores de Gestión 2025. La vista de reaseguro se mostrará vacía "
-                    "hasta que agreguemos esta equivalencia al diccionario de ramos."
-                )
-                re_df = re_df.iloc[0:0]
-            else:
-                mapped_line_norm = str(mapped_line).strip().upper()
-                re_df = re_df[re_df["line_of_business_standard_norm"] == mapped_line_norm]
-
-                if re_df.empty:
-                    st.warning(
-                        f"El ramo seleccionado '{selected_line}' fue mapeado como '{mapped_line}', "
-                        "pero no se encontraron registros en Indicadores de Gestión 2025."
-                    )
-                else:
-                    st.info(
-                        f"Ramo mapeado para Indicadores de Gestión: '{selected_line}' → '{mapped_line}'."
-                    )
-
-        aggregate_metric_rows = int(re_df["is_aggregate_lob"].sum()) if not re_df.empty else 0
-        aggregate_lines_available = sorted(
-            re_df.loc[re_df["is_aggregate_lob"], "line_of_business_standard"]
-            .dropna()
-            .astype(str)
-            .unique()
-        )
-
-        if exclude_aggregate_lines and aggregate_metric_rows:
-            re_df = re_df[~re_df["is_aggregate_lob"]].copy()
-            st.info(
-                f"Se excluyeron {aggregate_metric_rows:,} registros fuente de ramos agregados "
-                f"para reducir riesgo de duplicidad en rankings y KPIs exploratorios: "
-                f"{', '.join(aggregate_lines_available)}."
-            )
-        elif aggregate_metric_rows:
-            st.warning(
-                "La vista incluye ramos agregados. Estos totales pueden duplicar ramos individuales "
-                "en rankings y KPIs exploratorios."
-            )
-
-        # Indicadores de Gestión no trae ciudad; por eso no aplicamos filtro de ciudad
-        if selected_city != "TODAS":
-            st.info(
-                "Nota: Indicadores de Gestión no contiene detalle por ciudad. "
-                "La Reinsurance View no aplica el filtro de ciudad."
-            )
-
-        if re_df.empty:
-            st.warning(
-                "Data not available for the selected reinsurance filters. "
-                "Please adjust the company or line of business selection."
-            )
-            st.stop()
-
-        # Pasar a formato ancho para calcular KPIs correctamente
-        group_cols_re = [
-            "country",
-            "year",
-            "company_standard",
-            "line_of_business_standard"
-        ]
-
-        re_wide = (
-            re_df.pivot_table(
-                index=group_cols_re,
-                columns="metric_name",
-                values="metric_value",
-                aggfunc="sum"
-            )
-            .reset_index()
-        )
-
-        re_wide.columns.name = None
-
-        expected_cols = [
-            "gross_written_premium",
-            "retained_premium",
-            "reinsurance_ceded_premium",
-            "paid_claims",
-            "retention_ratio",
-            "reinsurance_cession_ratio"
-        ]
-
-        for col in expected_cols:
-            if col not in re_wide.columns:
-                re_wide[col] = pd.NA
-
-        # Recalcular ratios agregados, no sumar ratios
-        total_gwp = re_wide["gross_written_premium"].sum()
-        total_retained = re_wide["retained_premium"].sum()
-        total_ceded = re_wide["reinsurance_ceded_premium"].sum()
-        total_paid_claims = re_wide["paid_claims"].sum()
-
-        retention_ratio = total_retained / total_gwp if total_gwp else None
-        cession_ratio = total_ceded / total_gwp if total_gwp else None
-        paid_claims_ratio = total_paid_claims / total_gwp if total_gwp else None
-
-        col_a, col_b, col_c, col_d = st.columns(4)
-
-        with col_a:
-            render_metric_card("Primas emitidas", format_millions(total_gwp))
-        with col_b:
-            render_metric_card("Primas retenidas", format_millions(total_retained))
-        with col_c:
-            render_metric_card("Prima cedida reaseguro", format_millions(total_ceded))
-        with col_d:
-            render_metric_card("Ratio de cesión", format_percentage(cession_ratio))
-
-        col_e, col_f, col_g, col_h = st.columns(4)
-
-        with col_e:
-            render_metric_card("Ratio de retención", format_percentage(retention_ratio))
-        with col_f:
-            render_metric_card("Siniestros pagados", format_millions(total_paid_claims))
-        with col_g:
-            render_metric_card("Siniestros pagados / primas", format_percentage(paid_claims_ratio))
-        with col_h:
-            render_metric_card("Registros fuente", f"{len(re_df):,}")
-
-        st.divider()
-
-        st.markdown("### Cesión al reaseguro por ramo")
-
-        lob_summary = (
-            re_wide.groupby("line_of_business_standard", as_index=False)
-            .agg(
-                gross_written_premium=("gross_written_premium", "sum"),
-                retained_premium=("retained_premium", "sum"),
-                reinsurance_ceded_premium=("reinsurance_ceded_premium", "sum"),
-                paid_claims=("paid_claims", "sum"),
-                companies=("company_standard", "nunique")
-            )
-        )
-
-        lob_summary["cession_ratio"] = (
-            lob_summary["reinsurance_ceded_premium"] / lob_summary["gross_written_premium"]
-        )
-
-        lob_summary["retention_ratio"] = (
-            lob_summary["retained_premium"] / lob_summary["gross_written_premium"]
-        )
-
-        lob_summary["paid_claims_ratio"] = (
-            lob_summary["paid_claims"] / lob_summary["gross_written_premium"]
-        )
-
-        lob_summary = lob_summary.sort_values("reinsurance_ceded_premium", ascending=False)
-
-        lob_chart = lob_summary.head(20).copy()
-        lob_chart["ceded_mm"] = lob_chart["reinsurance_ceded_premium"] / 1_000_000
-
-        fig_ceded_lob = px.bar(
-            lob_chart,
-            x="line_of_business_standard",
-            y="ceded_mm",
-            title="Top 20 ramos por prima cedida al reaseguro",
-            labels={
-                "line_of_business_standard": "Ramo",
-                "ceded_mm": "Prima cedida en millones de pesos"
-            }
-        )
-
-        st.plotly_chart(fig_ceded_lob, width="stretch")
-
-        col_1, col_2 = st.columns(2)
-
-        with col_1:
-            ratio_chart = lob_summary[
-                lob_summary["gross_written_premium"] >= minimum_premium
-            ].sort_values("cession_ratio", ascending=False).head(20)
-
-            fig_cession_ratio = px.bar(
-                ratio_chart,
-                x="line_of_business_standard",
-                y="cession_ratio",
-                title="Top ramos por ratio de cesión",
-                labels={
-                    "line_of_business_standard": "Ramo",
-                    "cession_ratio": "Ratio de cesión"
-                }
-            )
-
-            fig_cession_ratio.update_yaxes(tickformat=".1%")
-            st.plotly_chart(fig_cession_ratio, width="stretch")
-
-        with col_2:
-            retained_chart = lob_summary[
-                lob_summary["gross_written_premium"] >= minimum_premium
-            ].sort_values("retention_ratio", ascending=False).head(20)
-
-            fig_retention_ratio = px.bar(
-                retained_chart,
-                x="line_of_business_standard",
-                y="retention_ratio",
-                title="Top ramos por ratio de retención",
-                labels={
-                    "line_of_business_standard": "Ramo",
-                    "retention_ratio": "Ratio de retención"
-                }
-            )
-
-            fig_retention_ratio.update_yaxes(tickformat=".1%")
-            st.plotly_chart(fig_retention_ratio, width="stretch")
-
-        st.markdown("### Top compañías por prima cedida")
-
-        company_summary_re = (
-            re_wide.groupby("company_standard", as_index=False)
-            .agg(
-                gross_written_premium=("gross_written_premium", "sum"),
-                retained_premium=("retained_premium", "sum"),
-                reinsurance_ceded_premium=("reinsurance_ceded_premium", "sum"),
-                paid_claims=("paid_claims", "sum")
-            )
-        )
-
-        company_summary_re["cession_ratio"] = (
-            company_summary_re["reinsurance_ceded_premium"] / company_summary_re["gross_written_premium"]
-        )
-
-        company_summary_re["retention_ratio"] = (
-            company_summary_re["retained_premium"] / company_summary_re["gross_written_premium"]
-        )
-
-        company_summary_re = company_summary_re.sort_values("reinsurance_ceded_premium", ascending=False)
-
-        company_chart = company_summary_re.head(20).copy()
-        company_chart["ceded_mm"] = company_chart["reinsurance_ceded_premium"] / 1_000_000
-
-        fig_company_ceded = px.bar(
-            company_chart,
-            x="company_standard",
-            y="ceded_mm",
-            title="Top 20 compañías por prima cedida al reaseguro",
-            labels={
-                "company_standard": "Compañía",
-                "ceded_mm": "Prima cedida en millones de pesos"
-            }
-        )
-
-        st.plotly_chart(fig_company_ceded, width="stretch")
-
-        st.markdown("### Tabla resumen por ramo")
-
-        lob_display = lob_summary.copy()
-        lob_display["gross_written_premium"] = lob_display["gross_written_premium"].map(format_millions)
-        lob_display["retained_premium"] = lob_display["retained_premium"].map(format_millions)
-        lob_display["reinsurance_ceded_premium"] = lob_display["reinsurance_ceded_premium"].map(format_millions)
-        lob_display["paid_claims"] = lob_display["paid_claims"].map(format_millions)
-        lob_display["cession_ratio"] = lob_display["cession_ratio"].map(format_percentage)
-        lob_display["retention_ratio"] = lob_display["retention_ratio"].map(format_percentage)
-        lob_display["paid_claims_ratio"] = lob_display["paid_claims_ratio"].map(format_percentage)
-
-        st.dataframe(
-            lob_display[
-                [
-                    "line_of_business_standard",
-                    "companies",
-                    "gross_written_premium",
-                    "retained_premium",
-                    "reinsurance_ceded_premium",
-                    "cession_ratio",
-                    "retention_ratio",
-                    "paid_claims",
-                    "paid_claims_ratio"
-                ]
-            ],
-            width="stretch"
-        )
-
-        st.markdown("### Validación de Indicadores de Gestión 2025")
-
-        if indicadores_validation_df.empty:
-            st.warning(
-                "No se encontró reporte de validación de Indicadores de Gestión. "
-                "Ejecuta `python src\\validate_indicadores_gestion_2025.py`."
-            )
-        else:
-            validation_counts_re = indicadores_validation_df["result"].value_counts().reset_index()
-            validation_counts_re.columns = ["result", "count"]
-
-            col_v1, col_v2 = st.columns([1, 2])
-
-            with col_v1:
-                st.dataframe(validation_counts_re, width="stretch")
-
-            with col_v2:
-                st.dataframe(indicadores_validation_df, width="stretch")
-
-        if indicadores_validation_flags_df.empty:
-            st.info(
-                "No se encontró archivo de flags de Indicadores de Gestión. "
-                "Ejecuta `python src\\validate_indicadores_gestion_2025.py` para generar el detalle."
-            )
-        else:
-            st.markdown("#### Warning counts")
-            flags_for_country = indicadores_validation_flags_df.copy()
-            if "country" in flags_for_country.columns:
-                flags_for_country = flags_for_country[
-                    flags_for_country["country"].astype(str).str.upper() == str(selected_country).upper()
-                ]
-
-            flag_counts = (
-                flags_for_country
-                .groupby(["severity", "flag_name"], as_index=False)
-                .size()
-                .rename(columns={"size": "records"})
-                .sort_values(["severity", "records"], ascending=[True, False])
-            )
-
-            st.dataframe(flag_counts, width="stretch")
-
-        st.warning(
-            "Metodología: esta vista usa Fasecolda - Indicadores de Gestión 2025. "
+        st.info(
+            "Metodología: fuente Fasecolda - Indicadores de Gestión 2025. "
+            "Estado: fuente complementaria exploratoria. "
             "Los ratios se recalculan a nivel agregado y no se suman. "
-            "Los ramos agregados pueden duplicar ramos individuales y deben tratarse con cautela. "
-            "La fuente está en validación exploratoria antes de integrarse al core regional principal."
+            "Los ramos agregados pueden duplicar ramos individuales y pueden excluirse de rankings. "
+            "La fuente requiere revisión metodológica adicional antes de integrarse al modelo regional core."
         )
+
+        if indicadores_df.empty:
+            st.warning(
+                "No se encontró la tabla fact_indicadores_gestion_2025. "
+                "Ejecuta primero `python src\\load_indicadores_gestion_to_duckdb.py`."
+            )
+        else:
+            exclude_aggregate_lines = st.checkbox(
+                "Exclude aggregate lines from rankings",
+                value=True,
+                help=(
+                    "Excluye ramos con lob_group = AGGREGATE en el mapping formal "
+                    "y totales como TOTAL DAÑOS, TOTAL PERSONAS y TOTAL SEGURIDAD SOCIAL."
+                )
+            )
+
+            indicadores_df["period_date"] = pd.to_datetime(indicadores_df["period_date"], errors="coerce")
+            indicadores_df["year"] = pd.to_numeric(indicadores_df["year"], errors="coerce").astype("Int64")
+            indicadores_df["metric_value"] = pd.to_numeric(indicadores_df["metric_value"], errors="coerce")
+
+            re_df = indicadores_df[indicadores_df["country"] == selected_country].copy()
+
+            # Normalizar textos para comparar mejor entre fuentes
+            re_df["company_standard_norm"] = re_df["company_standard"].astype(str).str.strip().str.upper()
+            re_df["line_of_business_standard_norm"] = re_df["line_of_business_standard"].astype(str).str.strip().str.upper()
+            aggregate_lob_lookup = get_aggregate_lob_lookup(
+                country=selected_country,
+                target_source="FASECOLDA - INDICADORES DE GESTION"
+            )
+            re_df["is_aggregate_lob"] = re_df["line_of_business_standard"].map(
+                lambda value: normalize_match_text(value) in aggregate_lob_lookup
+            )
+
+            # Filtros alineados con la barra lateral
+            if selected_company != "TODAS":
+                mapped_company = map_company_using_mapping_table(
+                    selected_company,
+                    target_source="FASECOLDA - INDICADORES DE GESTION",
+                    country=selected_country
+                )
+
+                if mapped_company is None:
+                    st.warning(
+                        f"La compañía seleccionada '{selected_company}' no tiene mapeo disponible "
+                        "en Indicadores de Gestión 2025. La vista de reaseguro se mostrará vacía "
+                        "hasta que agreguemos esta equivalencia al mapping de compañías."
+                    )
+                    re_df = re_df.iloc[0:0]
+                else:
+                    mapped_company_norm = str(mapped_company).strip().upper()
+                    re_df = re_df[re_df["company_standard_norm"] == mapped_company_norm]
+
+                    if re_df.empty:
+                        st.warning(
+                            f"La compañía seleccionada '{selected_company}' fue mapeada como "
+                            f"'{mapped_company}', pero no se encontraron registros en Indicadores de Gestión 2025."
+                        )
+                    else:
+                        st.info(
+                            f"Compañía mapeada para Indicadores de Gestión: "
+                            f"'{selected_company}' → '{mapped_company}'."
+                        )
+
+            if selected_line != "TODOS":
+                mapped_line = map_lob_using_mapping_table(
+                    selected_line,
+                    target_source="FASECOLDA - INDICADORES DE GESTION",
+                    country=selected_country
+                )
+
+                if mapped_line is None:
+                    st.warning(
+                        f"El ramo seleccionado '{selected_line}' no tiene mapeo disponible "
+                        "en Indicadores de Gestión 2025. La vista de reaseguro se mostrará vacía "
+                        "hasta que agreguemos esta equivalencia al diccionario de ramos."
+                    )
+                    re_df = re_df.iloc[0:0]
+                else:
+                    mapped_line_norm = str(mapped_line).strip().upper()
+                    re_df = re_df[re_df["line_of_business_standard_norm"] == mapped_line_norm]
+
+                    if re_df.empty:
+                        st.warning(
+                            f"El ramo seleccionado '{selected_line}' fue mapeado como '{mapped_line}', "
+                            "pero no se encontraron registros en Indicadores de Gestión 2025."
+                        )
+                    else:
+                        st.info(
+                            f"Ramo mapeado para Indicadores de Gestión: '{selected_line}' → '{mapped_line}'."
+                        )
+
+            aggregate_metric_rows = int(re_df["is_aggregate_lob"].sum()) if not re_df.empty else 0
+            aggregate_lines_available = sorted(
+                re_df.loc[re_df["is_aggregate_lob"], "line_of_business_standard"]
+                .dropna()
+                .astype(str)
+                .unique()
+            )
+
+            if exclude_aggregate_lines and aggregate_metric_rows:
+                re_df = re_df[~re_df["is_aggregate_lob"]].copy()
+                st.info(
+                    f"Se excluyeron {aggregate_metric_rows:,} registros fuente de ramos agregados "
+                    f"para reducir riesgo de duplicidad en rankings y KPIs exploratorios: "
+                    f"{', '.join(aggregate_lines_available)}."
+                )
+            elif aggregate_metric_rows:
+                st.warning(
+                    "La vista incluye ramos agregados. Estos totales pueden duplicar ramos individuales "
+                    "en rankings y KPIs exploratorios."
+                )
+
+            # Indicadores de Gestión no trae ciudad; por eso no aplicamos filtro de ciudad
+            if selected_city != "TODAS":
+                st.info(
+                    "Nota: Indicadores de Gestión no contiene detalle por ciudad. "
+                    "La Reinsurance View no aplica el filtro de ciudad."
+                )
+
+            if re_df.empty:
+                st.warning(
+                    "Data not available for the selected reinsurance filters. "
+                    "Please adjust the company or line of business selection."
+                )
+                st.stop()
+
+            # Pasar a formato ancho para calcular KPIs correctamente
+            group_cols_re = [
+                "country",
+                "year",
+                "company_standard",
+                "line_of_business_standard"
+            ]
+
+            re_wide = (
+                re_df.pivot_table(
+                    index=group_cols_re,
+                    columns="metric_name",
+                    values="metric_value",
+                    aggfunc="sum"
+                )
+                .reset_index()
+            )
+
+            re_wide.columns.name = None
+
+            expected_cols = [
+                "gross_written_premium",
+                "retained_premium",
+                "reinsurance_ceded_premium",
+                "paid_claims",
+                "retention_ratio",
+                "reinsurance_cession_ratio"
+            ]
+
+            for col in expected_cols:
+                if col not in re_wide.columns:
+                    re_wide[col] = pd.NA
+
+            # Recalcular ratios agregados, no sumar ratios
+            total_gwp = re_wide["gross_written_premium"].sum()
+            total_retained = re_wide["retained_premium"].sum()
+            total_ceded = re_wide["reinsurance_ceded_premium"].sum()
+            total_paid_claims = re_wide["paid_claims"].sum()
+
+            retention_ratio = total_retained / total_gwp if total_gwp else None
+            cession_ratio = total_ceded / total_gwp if total_gwp else None
+            paid_claims_ratio = total_paid_claims / total_gwp if total_gwp else None
+
+            col_a, col_b, col_c, col_d = st.columns(4)
+
+            with col_a:
+                render_metric_card("Primas emitidas", format_millions(total_gwp))
+            with col_b:
+                render_metric_card("Primas retenidas", format_millions(total_retained))
+            with col_c:
+                render_metric_card("Prima cedida reaseguro", format_millions(total_ceded))
+            with col_d:
+                render_metric_card("Ratio de cesión", format_percentage(cession_ratio))
+
+            col_e, col_f, col_g, col_h = st.columns(4)
+
+            with col_e:
+                render_metric_card("Ratio de retención", format_percentage(retention_ratio))
+            with col_f:
+                render_metric_card("Siniestros pagados", format_millions(total_paid_claims))
+            with col_g:
+                render_metric_card("Siniestros pagados / primas", format_percentage(paid_claims_ratio))
+            with col_h:
+                render_metric_card("Registros fuente", f"{len(re_df):,}")
+
+            st.divider()
+
+            st.markdown("### Cesión al reaseguro por ramo")
+
+            lob_summary = (
+                re_wide.groupby("line_of_business_standard", as_index=False)
+                .agg(
+                    gross_written_premium=("gross_written_premium", "sum"),
+                    retained_premium=("retained_premium", "sum"),
+                    reinsurance_ceded_premium=("reinsurance_ceded_premium", "sum"),
+                    paid_claims=("paid_claims", "sum"),
+                    companies=("company_standard", "nunique")
+                )
+            )
+
+            lob_summary["cession_ratio"] = (
+                lob_summary["reinsurance_ceded_premium"] / lob_summary["gross_written_premium"]
+            )
+
+            lob_summary["retention_ratio"] = (
+                lob_summary["retained_premium"] / lob_summary["gross_written_premium"]
+            )
+
+            lob_summary["paid_claims_ratio"] = (
+                lob_summary["paid_claims"] / lob_summary["gross_written_premium"]
+            )
+
+            lob_summary = lob_summary.sort_values("reinsurance_ceded_premium", ascending=False)
+
+            lob_chart = lob_summary.head(20).copy()
+            lob_chart["ceded_mm"] = lob_chart["reinsurance_ceded_premium"] / 1_000_000
+
+            fig_ceded_lob = px.bar(
+                lob_chart,
+                x="line_of_business_standard",
+                y="ceded_mm",
+                title="Top 20 ramos por prima cedida al reaseguro",
+                labels={
+                    "line_of_business_standard": "Ramo",
+                    "ceded_mm": "Prima cedida en millones de pesos"
+                }
+            )
+
+            st.plotly_chart(fig_ceded_lob, width="stretch")
+
+            col_1, col_2 = st.columns(2)
+
+            with col_1:
+                ratio_chart = lob_summary[
+                    lob_summary["gross_written_premium"] >= minimum_premium
+                ].sort_values("cession_ratio", ascending=False).head(20)
+
+                fig_cession_ratio = px.bar(
+                    ratio_chart,
+                    x="line_of_business_standard",
+                    y="cession_ratio",
+                    title="Top ramos por ratio de cesión",
+                    labels={
+                        "line_of_business_standard": "Ramo",
+                        "cession_ratio": "Ratio de cesión"
+                    }
+                )
+
+                fig_cession_ratio.update_yaxes(tickformat=".1%")
+                st.plotly_chart(fig_cession_ratio, width="stretch")
+
+            with col_2:
+                retained_chart = lob_summary[
+                    lob_summary["gross_written_premium"] >= minimum_premium
+                ].sort_values("retention_ratio", ascending=False).head(20)
+
+                fig_retention_ratio = px.bar(
+                    retained_chart,
+                    x="line_of_business_standard",
+                    y="retention_ratio",
+                    title="Top ramos por ratio de retención",
+                    labels={
+                        "line_of_business_standard": "Ramo",
+                        "retention_ratio": "Ratio de retención"
+                    }
+                )
+
+                fig_retention_ratio.update_yaxes(tickformat=".1%")
+                st.plotly_chart(fig_retention_ratio, width="stretch")
+
+            st.markdown("### Top compañías por prima cedida")
+
+            company_summary_re = (
+                re_wide.groupby("company_standard", as_index=False)
+                .agg(
+                    gross_written_premium=("gross_written_premium", "sum"),
+                    retained_premium=("retained_premium", "sum"),
+                    reinsurance_ceded_premium=("reinsurance_ceded_premium", "sum"),
+                    paid_claims=("paid_claims", "sum")
+                )
+            )
+
+            company_summary_re["cession_ratio"] = (
+                company_summary_re["reinsurance_ceded_premium"] / company_summary_re["gross_written_premium"]
+            )
+
+            company_summary_re["retention_ratio"] = (
+                company_summary_re["retained_premium"] / company_summary_re["gross_written_premium"]
+            )
+
+            company_summary_re = company_summary_re.sort_values("reinsurance_ceded_premium", ascending=False)
+
+            company_chart = company_summary_re.head(20).copy()
+            company_chart["ceded_mm"] = company_chart["reinsurance_ceded_premium"] / 1_000_000
+
+            fig_company_ceded = px.bar(
+                company_chart,
+                x="company_standard",
+                y="ceded_mm",
+                title="Top 20 compañías por prima cedida al reaseguro",
+                labels={
+                    "company_standard": "Compañía",
+                    "ceded_mm": "Prima cedida en millones de pesos"
+                }
+            )
+
+            st.plotly_chart(fig_company_ceded, width="stretch")
+
+            st.markdown("### Tabla resumen por ramo")
+
+            lob_display = lob_summary.copy()
+            lob_display["gross_written_premium"] = lob_display["gross_written_premium"].map(format_millions)
+            lob_display["retained_premium"] = lob_display["retained_premium"].map(format_millions)
+            lob_display["reinsurance_ceded_premium"] = lob_display["reinsurance_ceded_premium"].map(format_millions)
+            lob_display["paid_claims"] = lob_display["paid_claims"].map(format_millions)
+            lob_display["cession_ratio"] = lob_display["cession_ratio"].map(format_percentage)
+            lob_display["retention_ratio"] = lob_display["retention_ratio"].map(format_percentage)
+            lob_display["paid_claims_ratio"] = lob_display["paid_claims_ratio"].map(format_percentage)
+
+            st.dataframe(
+                lob_display[
+                    [
+                        "line_of_business_standard",
+                        "companies",
+                        "gross_written_premium",
+                        "retained_premium",
+                        "reinsurance_ceded_premium",
+                        "cession_ratio",
+                        "retention_ratio",
+                        "paid_claims",
+                        "paid_claims_ratio"
+                    ]
+                ],
+                width="stretch"
+            )
+
+            st.markdown("### Validación de Indicadores de Gestión 2025")
+
+            if indicadores_validation_df.empty:
+                st.warning(
+                    "No se encontró reporte de validación de Indicadores de Gestión. "
+                    "Ejecuta `python src\\validate_indicadores_gestion_2025.py`."
+                )
+            else:
+                validation_counts_re = indicadores_validation_df["result"].value_counts().reset_index()
+                validation_counts_re.columns = ["result", "count"]
+
+                col_v1, col_v2 = st.columns([1, 2])
+
+                with col_v1:
+                    st.dataframe(validation_counts_re, width="stretch")
+
+                with col_v2:
+                    st.dataframe(indicadores_validation_df, width="stretch")
+
+            if indicadores_validation_flags_df.empty:
+                st.info(
+                    "No se encontró archivo de flags de Indicadores de Gestión. "
+                    "Ejecuta `python src\\validate_indicadores_gestion_2025.py` para generar el detalle."
+                )
+            else:
+                st.markdown("#### Warning counts")
+                flags_for_country = indicadores_validation_flags_df.copy()
+                if "country" in flags_for_country.columns:
+                    flags_for_country = flags_for_country[
+                        flags_for_country["country"].astype(str).str.upper() == str(selected_country).upper()
+                    ]
+
+                flag_counts = (
+                    flags_for_country
+                    .groupby(["severity", "flag_name"], as_index=False)
+                    .size()
+                    .rename(columns={"size": "records"})
+                    .sort_values(["severity", "records"], ascending=[True, False])
+                )
+
+                st.dataframe(flag_counts, width="stretch")
+
+            st.warning(
+                "Metodología: esta vista usa Fasecolda - Indicadores de Gestión 2025. "
+                "Los ratios se recalculan a nivel agregado y no se suman. "
+                "Los ramos agregados pueden duplicar ramos individuales y deben tratarse con cautela. "
+                "La fuente está en validación exploratoria antes de integrarse al core regional principal."
+            )
+    except Exception as exc:
+        render_section_error(exc)
 
 
 # ============================================================
@@ -2544,417 +2600,426 @@ if selected_view == "Reinsurance View":
 # ============================================================
 
 if selected_view == "Data Status":
-    validation_df = load_validation_report()
-    indicadores_df = load_indicadores_gestion_2025()
-    indicadores_validation_df = load_indicadores_gestion_validation()
-    indicadores_validation_flags_df = load_indicadores_gestion_validation_flags()
+    try:
+        validation_df = load_validation_report()
+        indicadores_df = load_indicadores_gestion_2025()
+        indicadores_validation_df = load_indicadores_gestion_validation()
+        indicadores_validation_flags_df = load_indicadores_gestion_validation_flags()
 
-    render_section_header(
-        "Data Governance Status",
-        "Coverage, traceability, mapping readiness and validation warnings for the selected country module.",
-    )
-
-    status_all_periods_df = load_market_core_all_periods()
-    if status_all_periods_df.empty:
-        status_country_df = country_df.copy()
-    else:
-        status_all_periods_df["period_date"] = pd.to_datetime(status_all_periods_df["period_date"], errors="coerce")
-        status_all_periods_df["year"] = status_all_periods_df["year"].astype(int)
-        status_all_periods_df["month"] = status_all_periods_df["month"].astype(int)
-        status_all_periods_df["metric_value"] = pd.to_numeric(status_all_periods_df["metric_value"], errors="coerce")
-        status_all_periods_df = normalize_core_market_units(status_all_periods_df)
-        status_country_df = status_all_periods_df[status_all_periods_df["country"] == selected_country].copy()
-    total_rows = len(status_country_df)
-    total_companies = status_country_df["company_standard"].nunique()
-    total_lines = status_country_df["line_of_business_standard"].nunique()
-    total_cities = status_country_df["city"].nunique()
-    total_files = status_country_df["source_file"].nunique()
-    min_date = status_country_df["period_date"].min()
-    max_date = status_country_df["period_date"].max()
-
-    col_a, col_b, col_c, col_d = st.columns(4)
-
-    with col_a:
-        render_metric_card("Loaded records", f"{total_rows:,}", "Core market table")
-    with col_b:
-        render_metric_card("Companies", f"{total_companies:,}", "Standard company names")
-    with col_c:
-        render_metric_card("Lines", f"{total_lines:,}", "Standard lines of business")
-    with col_d:
-        render_metric_card("Source files", f"{total_files:,}", "Processed public files")
-
-    col_e, col_f, col_g, col_h = st.columns(4)
-
-    with col_e:
-        render_metric_card("Cities", f"{total_cities:,}", "City-level coverage")
-    with col_f:
-        render_metric_card("First date", min_date.strftime("%d/%m/%Y") if pd.notna(min_date) else "N/A")
-    with col_g:
-        render_metric_card("Last date", max_date.strftime("%d/%m/%Y") if pd.notna(max_date) else "N/A")
-    with col_h:
-        render_metric_card("App review", run_time.strftime("%d/%m/%Y %H:%M"), "Local runtime")
-
-    st.divider()
-
-    st.info(
-        "Core market analytics use the latest available monthly cut for each year because "
-        "Fasecolda - Ciudades y Ramos files are cumulative period cuts. The extracted VALOR "
-        "field is treated as thousands of COP and converted to COP for KPIs, charts, briefs, "
-        "exports and technical signals. Data Status tables below show all loaded source records "
-        "for traceability."
-    )
-
-    render_section_header("Data Sources", "Core and complementary sources currently available to the app.")
-
-    source_summary = (
-        status_country_df
-        .groupby(["country", "regulator", "source"], as_index=False)
-        .agg(
-            records=("metric_value", "count"),
-            files=("source_file", "nunique"),
-            first_date=("period_date", "min"),
-            last_date=("period_date", "max")
+        render_section_header(
+            "Data Governance Status",
+            "Coverage, traceability, mapping readiness and validation warnings for the selected country module.",
         )
-    )
 
-    source_summary["status"] = "Core regional principal"
-    source_summary["usage"] = "Primas, siniestros, siniestralidad, compañías, ramos, ciudades"
+        status_all_periods_df = load_market_core_all_periods()
+        if status_all_periods_df.empty:
+            status_country_df = country_df.copy()
+        else:
+            status_all_periods_df["period_date"] = pd.to_datetime(status_all_periods_df["period_date"], errors="coerce")
+            status_all_periods_df["year"] = status_all_periods_df["year"].astype(int)
+            status_all_periods_df["month"] = status_all_periods_df["month"].astype(int)
+            status_all_periods_df["metric_value"] = pd.to_numeric(status_all_periods_df["metric_value"], errors="coerce")
+            status_all_periods_df = normalize_core_market_units(status_all_periods_df)
+            status_country_df = status_all_periods_df[status_all_periods_df["country"] == selected_country].copy()
+        total_rows = len(status_country_df)
+        total_companies = status_country_df["company_standard"].nunique()
+        total_lines = status_country_df["line_of_business_standard"].nunique()
+        total_cities = status_country_df["city"].nunique()
+        total_files = status_country_df["source_file"].nunique()
+        min_date = status_country_df["period_date"].min()
+        max_date = status_country_df["period_date"].max()
 
-    # Agregar fuente complementaria de Indicadores de Gestión si está cargada
-    if "indicadores_df" in globals() and not indicadores_df.empty:
-        indicadores_country_df = indicadores_df[indicadores_df["country"] == selected_country].copy()
+        col_a, col_b, col_c, col_d = st.columns(4)
 
-        if not indicadores_country_df.empty:
-            indicadores_country_df["period_date"] = pd.to_datetime(
-                indicadores_country_df["period_date"],
-                errors="coerce"
+        with col_a:
+            render_metric_card("Loaded records", f"{total_rows:,}", "Core market table")
+        with col_b:
+            render_metric_card("Companies", f"{total_companies:,}", "Standard company names")
+        with col_c:
+            render_metric_card("Lines", f"{total_lines:,}", "Standard lines of business")
+        with col_d:
+            render_metric_card("Source files", f"{total_files:,}", "Processed public files")
+
+        col_e, col_f, col_g, col_h = st.columns(4)
+
+        with col_e:
+            render_metric_card("Cities", f"{total_cities:,}", "City-level coverage")
+        with col_f:
+            render_metric_card("First date", min_date.strftime("%d/%m/%Y") if pd.notna(min_date) else "N/A")
+        with col_g:
+            render_metric_card("Last date", max_date.strftime("%d/%m/%Y") if pd.notna(max_date) else "N/A")
+        with col_h:
+            render_metric_card("App review", run_time.strftime("%d/%m/%Y %H:%M"), "Local runtime")
+
+        st.divider()
+
+        st.info(
+            "Core market analytics use the latest available monthly cut for each year because "
+            "Fasecolda - Ciudades y Ramos files are cumulative period cuts. The extracted VALOR "
+            "field is treated as thousands of COP and converted to COP for KPIs, charts, briefs, "
+            "exports and technical signals. Data Status tables below show all loaded source records "
+            "for traceability."
+        )
+
+        render_section_header("Data Sources", "Core and complementary sources currently available to the app.")
+
+        source_summary = (
+            status_country_df
+            .groupby(["country", "regulator", "source"], as_index=False)
+            .agg(
+                records=("metric_value", "count"),
+                files=("source_file", "nunique"),
+                first_date=("period_date", "min"),
+                last_date=("period_date", "max")
+            )
+        )
+
+        source_summary["status"] = "Core regional principal"
+        source_summary["usage"] = "Primas, siniestros, siniestralidad, compañías, ramos, ciudades"
+
+        # Agregar fuente complementaria de Indicadores de Gestión si está cargada
+        if "indicadores_df" in globals() and not indicadores_df.empty:
+            indicadores_country_df = indicadores_df[indicadores_df["country"] == selected_country].copy()
+
+            if not indicadores_country_df.empty:
+                indicadores_country_df["period_date"] = pd.to_datetime(
+                    indicadores_country_df["period_date"],
+                    errors="coerce"
+                )
+
+                indicadores_summary = pd.DataFrame([{
+                    "country": selected_country,
+                    "regulator": "FASECOLDA",
+                    "source": "FASECOLDA - INDICADORES DE GESTION 2025",
+                    "records": len(indicadores_country_df),
+                    "files": indicadores_country_df["source_file"].nunique(),
+                    "first_date": indicadores_country_df["period_date"].min(),
+                    "last_date": indicadores_country_df["period_date"].max(),
+                    "status": "Fuente complementaria exploratoria",
+                    "usage": "Cesión al reaseguro, retención, siniestros pagados, ratios técnicos"
+                }])
+
+                source_summary = pd.concat(
+                    [source_summary, indicadores_summary],
+                    ignore_index=True
+                )
+
+        st.dataframe(source_summary, width="stretch")
+
+        st.info(
+            "La fuente principal del core regional es Fasecolda - Ciudades y Ramos. "
+            "Indicadores de Gestión 2025 se está usando como fuente complementaria exploratoria "
+            "para la Reinsurance View y requiere validación metodológica antes de integrarse "
+            "al core regional principal."
+        )
+
+        render_section_header("Mappings Loaded", "Formal mapping tables used for source-to-standard names.")
+
+        mapping_status = build_mapping_status_summary(lob_mapping_df, company_mapping_df)
+
+        map_col_a, map_col_b, map_col_c = st.columns(3)
+        map_col_a.metric("dim_line_of_business_mapping rows", f"{mapping_status['lob_rows']:,}")
+        map_col_b.metric("dim_company_mapping rows", f"{mapping_status['company_rows']:,}")
+        map_col_c.metric("Countries covered", f"{mapping_status['countries']:,}")
+
+        map_col_d, map_col_e, map_col_f = st.columns(3)
+        map_col_d.metric("Sources covered", f"{mapping_status['sources']:,}")
+        map_col_e.metric("Standard lines of business", f"{mapping_status['standard_lobs']:,}")
+        map_col_f.metric("Standard companies", f"{mapping_status['standard_companies']:,}")
+
+        st.write(
+            "Los mappings conectan nombres locales de compañías y ramos entre fuentes públicas "
+            "con nombres estándar del modelo regional. Esto permite comparar Ciudades y Ramos "
+            "con Indicadores de Gestión sin depender de diccionarios internos del app. "
+            "Cuando no existe mapping disponible, la vista lo muestra como dato no disponible "
+            "en lugar de inventar equivalencias."
+        )
+
+        if lob_mapping_df.empty or company_mapping_df.empty:
+            st.warning(
+                "No mapping available: una o ambas tablas de mapping no están cargadas. "
+                "Ejecuta `python src\\load_mappings_to_duckdb.py`."
             )
 
-            indicadores_summary = pd.DataFrame([{
-                "country": selected_country,
-                "regulator": "FASECOLDA",
-                "source": "FASECOLDA - INDICADORES DE GESTION 2025",
-                "records": len(indicadores_country_df),
-                "files": indicadores_country_df["source_file"].nunique(),
-                "first_date": indicadores_country_df["period_date"].min(),
-                "last_date": indicadores_country_df["period_date"].max(),
-                "status": "Fuente complementaria exploratoria",
-                "usage": "Cesión al reaseguro, retención, siniestros pagados, ratios técnicos"
-            }])
+        render_section_header("Metric Availability", "Available metrics by country, record count and period coverage.")
 
-            source_summary = pd.concat(
-                [source_summary, indicadores_summary],
-                ignore_index=True
+        available_metrics = (
+            status_country_df
+            .groupby(["country", "metric_name"], as_index=False)
+            .agg(
+                records=("metric_value", "count"),
+                first_date=("period_date", "min"),
+                last_date=("period_date", "max")
             )
-
-    st.dataframe(source_summary, width="stretch")
-
-    st.info(
-        "La fuente principal del core regional es Fasecolda - Ciudades y Ramos. "
-        "Indicadores de Gestión 2025 se está usando como fuente complementaria exploratoria "
-        "para la Reinsurance View y requiere validación metodológica antes de integrarse "
-        "al core regional principal."
-    )
-
-    render_section_header("Mappings Loaded", "Formal mapping tables used for source-to-standard names.")
-
-    mapping_status = build_mapping_status_summary(lob_mapping_df, company_mapping_df)
-
-    map_col_a, map_col_b, map_col_c = st.columns(3)
-    map_col_a.metric("dim_line_of_business_mapping rows", f"{mapping_status['lob_rows']:,}")
-    map_col_b.metric("dim_company_mapping rows", f"{mapping_status['company_rows']:,}")
-    map_col_c.metric("Countries covered", f"{mapping_status['countries']:,}")
-
-    map_col_d, map_col_e, map_col_f = st.columns(3)
-    map_col_d.metric("Sources covered", f"{mapping_status['sources']:,}")
-    map_col_e.metric("Standard lines of business", f"{mapping_status['standard_lobs']:,}")
-    map_col_f.metric("Standard companies", f"{mapping_status['standard_companies']:,}")
-
-    st.write(
-        "Los mappings conectan nombres locales de compañías y ramos entre fuentes públicas "
-        "con nombres estándar del modelo regional. Esto permite comparar Ciudades y Ramos "
-        "con Indicadores de Gestión sin depender de diccionarios internos del app. "
-        "Cuando no existe mapping disponible, la vista lo muestra como dato no disponible "
-        "en lugar de inventar equivalencias."
-    )
-
-    if lob_mapping_df.empty or company_mapping_df.empty:
-        st.warning(
-            "No mapping available: una o ambas tablas de mapping no están cargadas. "
-            "Ejecuta `python src\\load_mappings_to_duckdb.py`."
         )
 
-    render_section_header("Metric Availability", "Available metrics by country, record count and period coverage.")
+        metric_name_display = {
+            "gross_written_premium": "Primas",
+            "claims": "Siniestros",
+            "reinsurance_ceded_premium": "Cesión al reaseguro",
+            "technical_result": "Resultado técnico",
+            "net_result": "Resultado neto",
+            "taxes_or_contributions": "Impuestos / contribuciones"
+        }
 
-    available_metrics = (
-        status_country_df
-        .groupby(["country", "metric_name"], as_index=False)
-        .agg(
-            records=("metric_value", "count"),
-            first_date=("period_date", "min"),
-            last_date=("period_date", "max")
+        available_metrics["metric_display"] = available_metrics["metric_name"].map(metric_name_display).fillna(available_metrics["metric_name"])
+
+        st.dataframe(
+            available_metrics[["country", "metric_display", "records", "first_date", "last_date"]],
+            width="stretch"
         )
-    )
 
-    metric_name_display = {
-        "gross_written_premium": "Primas",
-        "claims": "Siniestros",
-        "reinsurance_ceded_premium": "Cesión al reaseguro",
-        "technical_result": "Resultado técnico",
-        "net_result": "Resultado neto",
-        "taxes_or_contributions": "Impuestos / contribuciones"
-    }
+        render_section_header("Processed Source Files", "File-level traceability for the selected country module.")
 
-    available_metrics["metric_display"] = available_metrics["metric_name"].map(metric_name_display).fillna(available_metrics["metric_name"])
-
-    st.dataframe(
-        available_metrics[["country", "metric_display", "records", "first_date", "last_date"]],
-        width="stretch"
-    )
-
-    render_section_header("Processed Source Files", "File-level traceability for the selected country module.")
-
-    files_summary = (
-        status_country_df
-        .groupby("source_file", as_index=False)
-        .agg(
-            records=("metric_value", "count"),
-            first_date=("period_date", "min"),
-            last_date=("period_date", "max")
+        files_summary = (
+            status_country_df
+            .groupby("source_file", as_index=False)
+            .agg(
+                records=("metric_value", "count"),
+                first_date=("period_date", "min"),
+                last_date=("period_date", "max")
+            )
+            .sort_values("source_file")
         )
-        .sort_values("source_file")
-    )
 
-    st.dataframe(files_summary, width="stretch")
+        st.dataframe(files_summary, width="stretch")
 
-    render_section_header("Validation Checks", "Automated data validation results and warning counts.")
+        render_section_header("Validation Checks", "Automated data validation results and warning counts.")
 
-    if validation_df.empty:
-        st.warning(
-            "No se encontró reporte de validación. Ejecuta `python src\\validate_market_core.py` "
-            "para generar `outputs/market_core_validation_report.csv`."
+        if validation_df.empty:
+            st.warning(
+                "No se encontró reporte de validación. Ejecuta `python src\\validate_market_core.py` "
+                "para generar `outputs/market_core_validation_report.csv`."
+            )
+        else:
+            validation_counts = validation_df["result"].value_counts().reset_index()
+            validation_counts.columns = ["result", "count"]
+
+            col_i, col_j = st.columns([1, 2])
+
+            with col_i:
+                st.dataframe(validation_counts, width="stretch")
+
+            with col_j:
+                st.dataframe(validation_df, width="stretch")
+
+        render_section_header("Indicadores de Gestión 2025 Validation", "Exploratory reinsurance-source warnings and flags.")
+
+        if indicadores_validation_df.empty:
+            st.warning(
+                "No se encontró reporte de validación de Indicadores de Gestión. "
+                "Ejecuta `python src\\validate_indicadores_gestion_2025.py`."
+            )
+        else:
+            indicadores_validation_counts = indicadores_validation_df["result"].value_counts().reset_index()
+            indicadores_validation_counts.columns = ["result", "count"]
+
+            col_k, col_l = st.columns([1, 2])
+
+            with col_k:
+                st.dataframe(indicadores_validation_counts, width="stretch")
+
+            with col_l:
+                st.dataframe(indicadores_validation_df, width="stretch")
+
+        if indicadores_validation_flags_df.empty:
+            st.info("No hay flags detallados cargados para Indicadores de Gestión 2025.")
+        else:
+            indicadores_flags_status = (
+                indicadores_validation_flags_df
+                .groupby(["severity", "flag_name"], as_index=False)
+                .size()
+                .rename(columns={"size": "records"})
+                .sort_values(["severity", "records"], ascending=[True, False])
+            )
+            st.dataframe(indicadores_flags_status, width="stretch")
+
+        st.info(
+            "Esta sección evolucionará hacia un Data Status corporativo con logs de actualización, "
+            "archivos descargados, validaciones automáticas, errores detectados y fecha de última ejecución "
+            "del automated regulatory data pipeline."
         )
-    else:
-        validation_counts = validation_df["result"].value_counts().reset_index()
-        validation_counts.columns = ["result", "count"]
-
-        col_i, col_j = st.columns([1, 2])
-
-        with col_i:
-            st.dataframe(validation_counts, width="stretch")
-
-        with col_j:
-            st.dataframe(validation_df, width="stretch")
-
-    render_section_header("Indicadores de Gestión 2025 Validation", "Exploratory reinsurance-source warnings and flags.")
-
-    if indicadores_validation_df.empty:
-        st.warning(
-            "No se encontró reporte de validación de Indicadores de Gestión. "
-            "Ejecuta `python src\\validate_indicadores_gestion_2025.py`."
-        )
-    else:
-        indicadores_validation_counts = indicadores_validation_df["result"].value_counts().reset_index()
-        indicadores_validation_counts.columns = ["result", "count"]
-
-        col_k, col_l = st.columns([1, 2])
-
-        with col_k:
-            st.dataframe(indicadores_validation_counts, width="stretch")
-
-        with col_l:
-            st.dataframe(indicadores_validation_df, width="stretch")
-
-    if indicadores_validation_flags_df.empty:
-        st.info("No hay flags detallados cargados para Indicadores de Gestión 2025.")
-    else:
-        indicadores_flags_status = (
-            indicadores_validation_flags_df
-            .groupby(["severity", "flag_name"], as_index=False)
-            .size()
-            .rename(columns={"size": "records"})
-            .sort_values(["severity", "records"], ascending=[True, False])
-        )
-        st.dataframe(indicadores_flags_status, width="stretch")
-
-    st.info(
-        "Esta sección evolucionará hacia un Data Status corporativo con logs de actualización, "
-        "archivos descargados, validaciones automáticas, errores detectados y fecha de última ejecución "
-        "del automated regulatory data pipeline."
-    )
+    except Exception as exc:
+        render_section_error(exc)
 
 # ============================================================
 # TAB 8 — REPORTS / EXPORT
 # ============================================================
 
 if selected_view == "Reports / Export":
-    indicadores_df = load_indicadores_gestion_2025()
+    try:
+        indicadores_df = load_indicadores_gestion_2025()
 
-    st.subheader("Reports / Export")
-    st.caption("Exportables iniciales para análisis y preparación de reuniones.")
+        st.subheader("Reports / Export")
+        st.caption("Exportables iniciales para análisis y preparación de reuniones.")
 
-    st.markdown("### Data exports")
+        st.markdown("### Data exports")
 
-    csv = filtered_df.to_csv(index=False, encoding="utf-8-sig")
+        csv = filtered_df.to_csv(index=False, encoding="utf-8-sig")
 
-    export_col_a, export_col_b = st.columns(2)
+        export_col_a, export_col_b = st.columns(2)
 
-    with export_col_a:
-        st.download_button(
-            label="Download filtered data CSV",
-            data=csv,
-            file_name="lac_insurance_market_filtered_data.csv",
-            mime="text/csv",
-            key="reports_download_filtered_data_csv",
-        )
+        with export_col_a:
+            st.download_button(
+                label="Download filtered data CSV",
+                data=csv,
+                file_name="lac_insurance_market_filtered_data.csv",
+                mime="text/csv",
+                key="reports_download_filtered_data_csv",
+            )
 
-    with export_col_b:
-        st.download_button(
-            label="Download annual summary CSV",
-            data=annual_summary_csv(filtered_df),
-            file_name="annual_market_summary.csv",
-            mime="text/csv",
-            key="reports_download_annual_summary_csv",
-        )
+        with export_col_b:
+            st.download_button(
+                label="Download annual summary CSV",
+                data=annual_summary_csv(filtered_df),
+                file_name="annual_market_summary.csv",
+                mime="text/csv",
+                key="reports_download_annual_summary_csv",
+            )
 
-    export_col_c, export_col_d = st.columns(2)
+        export_col_c, export_col_d = st.columns(2)
 
-    with export_col_c:
-        st.download_button(
-            label="Download company summary CSV",
-            data=company_summary_csv(filtered_df),
-            file_name="company_summary.csv",
-            mime="text/csv",
-            key="reports_download_company_summary_csv",
-        )
+        with export_col_c:
+            st.download_button(
+                label="Download company summary CSV",
+                data=company_summary_csv(filtered_df),
+                file_name="company_summary.csv",
+                mime="text/csv",
+                key="reports_download_company_summary_csv",
+            )
 
-    with export_col_d:
-        st.download_button(
-            label="Download reinsurance summary CSV",
-            data=reinsurance_summary_csv(indicadores_df, selected_country),
-            file_name="reinsurance_summary.csv",
-            mime="text/csv",
-            key="reports_download_reinsurance_summary_csv",
-        )
+        with export_col_d:
+            st.download_button(
+                label="Download reinsurance summary CSV",
+                data=reinsurance_summary_csv(indicadores_df, selected_country),
+                file_name="reinsurance_summary.csv",
+                mime="text/csv",
+                key="reports_download_reinsurance_summary_csv",
+            )
 
-    st.markdown("### Brief exports")
+        st.markdown("### Brief exports")
 
-    if selected_company == "TODAS":
-        st.info("Select a company in the sidebar to export company brief and one-pager files.")
-    else:
-        report_company_df = filtered_df[filtered_df["company_standard"] == selected_company]
-        report_market_reference_df = country_df[country_df["year"].isin(selected_years)]
+        if selected_company == "TODAS":
+            st.info("Select a company in the sidebar to export company brief and one-pager files.")
+        else:
+            report_company_df = filtered_df[filtered_df["company_standard"] == selected_company]
+            report_market_reference_df = country_df[country_df["year"].isin(selected_years)]
 
-        if selected_line != "TODOS":
-            report_market_reference_df = report_market_reference_df[
-                report_market_reference_df["line_of_business_standard"] == selected_line
-            ]
+            if selected_line != "TODOS":
+                report_market_reference_df = report_market_reference_df[
+                    report_market_reference_df["line_of_business_standard"] == selected_line
+                ]
 
-        if selected_city != "TODAS":
-            report_market_reference_df = report_market_reference_df[
-                report_market_reference_df["city"] == selected_city
-            ]
+            if selected_city != "TODAS":
+                report_market_reference_df = report_market_reference_df[
+                    report_market_reference_df["city"] == selected_city
+                ]
 
-        report_mapped_company = map_company_using_mapping_table(
-            selected_company,
-            target_source="FASECOLDA - INDICADORES DE GESTION",
-            country=selected_country,
-        )
-        report_mapped_line = None
-        if selected_line != "TODOS":
-            report_mapped_line = map_lob_using_mapping_table(
-                selected_line,
+            report_mapped_company = map_company_using_mapping_table(
+                selected_company,
                 target_source="FASECOLDA - INDICADORES DE GESTION",
                 country=selected_country,
             )
+            report_mapped_line = None
+            if selected_line != "TODOS":
+                report_mapped_line = map_lob_using_mapping_table(
+                    selected_line,
+                    target_source="FASECOLDA - INDICADORES DE GESTION",
+                    country=selected_country,
+                )
 
-        try:
-            report_reinsurance_wide = build_reinsurance_wide(
-                indicadores_df,
-                selected_country,
-                company=report_mapped_company,
-                line=report_mapped_line,
-            )
-            report_brief = build_company_brief(
-                country=selected_country,
+            try:
+                report_reinsurance_wide = build_reinsurance_wide(
+                    indicadores_df,
+                    selected_country,
+                    company=report_mapped_company,
+                    line=report_mapped_line,
+                )
+                report_brief = build_company_brief(
+                    country=selected_country,
+                    company=selected_company,
+                    selected_line=selected_line,
+                    selected_years=selected_years,
+                    company_df=report_company_df,
+                    market_df=report_market_reference_df,
+                    reinsurance_summary=summarize_reinsurance(report_reinsurance_wide),
+                    minimum_premium=minimum_premium,
+                )
+            except Exception as exc:
+                render_section_error(exc)
+                st.stop()
+            report_one_pager_markdown = render_one_pager_markdown(
+                report_brief,
                 company=selected_company,
-                selected_line=selected_line,
-                selected_years=selected_years,
-                company_df=report_company_df,
-                market_df=report_market_reference_df,
-                reinsurance_summary=summarize_reinsurance(report_reinsurance_wide),
-                minimum_premium=minimum_premium,
+                country=selected_country,
             )
-        except Exception as exc:
-            render_section_error(exc)
-            st.stop()
-        report_one_pager_markdown = render_one_pager_markdown(
-            report_brief,
-            company=selected_company,
-            country=selected_country,
+            report_one_pager_html = render_markdown_as_html(
+                report_one_pager_markdown,
+                title=f"{selected_company} one-pager",
+            )
+
+            brief_col_a, brief_col_b, brief_col_c = st.columns(3)
+
+            with brief_col_a:
+                st.download_button(
+                    label="Download company brief markdown",
+                    data=report_brief["markdown"],
+                    file_name=f"{selected_company.lower().replace(' ', '_')}_company_brief.md",
+                    mime="text/markdown",
+                    key="reports_download_company_brief_md",
+                )
+
+            with brief_col_b:
+                st.download_button(
+                    label="Download one-pager markdown",
+                    data=report_one_pager_markdown,
+                    file_name=f"{selected_company.lower().replace(' ', '_')}_one_pager.md",
+                    mime="text/markdown",
+                    key="reports_download_one_pager_md",
+                )
+
+            with brief_col_c:
+                st.download_button(
+                    label="Download one-pager HTML",
+                    data=report_one_pager_html,
+                    file_name=f"{selected_company.lower().replace(' ', '_')}_one_pager.html",
+                    mime="text/html",
+                    key="reports_download_one_pager_html",
+                )
+
+        st.warning(
+            "Export note: markdown and HTML exports are available first. PDF or PowerPoint can be added later "
+            "with optional libraries, without blocking the app."
         )
-        report_one_pager_html = render_markdown_as_html(
-            report_one_pager_markdown,
-            title=f"{selected_company} one-pager",
-        )
-
-        brief_col_a, brief_col_b, brief_col_c = st.columns(3)
-
-        with brief_col_a:
-            st.download_button(
-                label="Download company brief markdown",
-                data=report_brief["markdown"],
-                file_name=f"{selected_company.lower().replace(' ', '_')}_company_brief.md",
-                mime="text/markdown",
-                key="reports_download_company_brief_md",
-            )
-
-        with brief_col_b:
-            st.download_button(
-                label="Download one-pager markdown",
-                data=report_one_pager_markdown,
-                file_name=f"{selected_company.lower().replace(' ', '_')}_one_pager.md",
-                mime="text/markdown",
-                key="reports_download_one_pager_md",
-            )
-
-        with brief_col_c:
-            st.download_button(
-                label="Download one-pager HTML",
-                data=report_one_pager_html,
-                file_name=f"{selected_company.lower().replace(' ', '_')}_one_pager.html",
-                mime="text/html",
-                key="reports_download_one_pager_html",
-            )
-
-    st.warning(
-        "Export note: markdown and HTML exports are available first. PDF or PowerPoint can be added later "
-        "with optional libraries, without blocking the app."
-    )
+    except Exception as exc:
+        render_section_error(exc)
 
 # ============================================================
 # TAB 9 — DATA TABLE
 # ============================================================
 
 if selected_view == "Data Table":
-    st.subheader("Data Table")
-    st.caption("Vista preliminar de los primeros 1,000 registros filtrados.")
+    try:
+        st.subheader("Data Table")
+        st.caption("Vista preliminar de los primeros 1,000 registros filtrados.")
 
-    st.dataframe(
-        filtered_df.head(1000),
-        width="stretch"
-    )
+        st.dataframe(
+            filtered_df.head(1000),
+            width="stretch"
+        )
 
-    st.markdown("### Descripción del dataset")
+        st.markdown("### Descripción del dataset")
 
-    st.write(
-        """
-        Este módulo utiliza información pública de Fasecolda sobre primas y siniestros.
-        La información fue consolidada, limpiada y cargada en DuckDB bajo una estructura regional
-        llamada `fact_market_core`.
+        st.write(
+            """
+            Este módulo utiliza información pública de Fasecolda sobre primas y siniestros.
+            La información fue consolidada, limpiada y cargada en DuckDB bajo una estructura regional
+            llamada `fact_market_core`.
         
-        Colombia es el primer módulo operativo del LAC Insurance Market Intelligence Hub.
-        La arquitectura se está preparando para incorporar otros países de Latinoamérica y el Caribe,
-        incluso cuando no todos los países tengan el mismo nivel de detalle disponible.
-        """
-    )
+            Colombia es el primer módulo operativo del LAC Insurance Market Intelligence Hub.
+            La arquitectura se está preparando para incorporar otros países de Latinoamérica y el Caribe,
+            incluso cuando no todos los países tengan el mismo nivel de detalle disponible.
+            """
+        )
+    except Exception as exc:
+        render_section_error(exc)
