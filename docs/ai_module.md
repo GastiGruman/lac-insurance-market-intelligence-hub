@@ -45,18 +45,16 @@ The app supports these use cases:
 
 The selected type changes the emphasis of the generated brief, but all output remains grounded in internal structured data.
 
-## External Intelligence Not Yet Connected
+## External Intelligence Connection
 
-The module does not currently include:
+The Phase 4C AI Brief does not directly include:
 
-- Company news.
 - Ratings or rating actions.
 - Financial statements.
-- Key people or leadership.
 - Live web search.
 - External LLM-generated interpretation.
 
-These are planned future enhancements subject to source review, security configuration and governance.
+Phase 4D adds a separate curated/manual external intelligence context for News and key-people templates. Future AI Brief versions may consume that curated context after governance review, but Phase 4C AI Brief remains internal structured data only.
 
 ## Guardrails
 

@@ -14,11 +14,12 @@ This matrix explains which data source supports each app module and how much con
 | Reports / Export | Current filtered app data | Indicadores de Gestion 2025 for reinsurance export | Same as selected module/filter | CSV exports, markdown/HTML brief exports | Exports reflect current demo snapshot and filters | Medium |
 | Data Table | Fasecolda - Ciudades y Ramos | None | Filtered rows from core market table | Shows first 1,000 filtered records | Not intended as full raw-data delivery | High for traceability sample |
 | AI Brief | Internal structured app data | Optional future LLM provider, not required in Phase 4C | Current filters, market summary, Company Brief context, Reinsurance View context, technical signals, methodology notes | Deterministic broker-ready brief, constrained internal-data answers, meeting questions and copy-ready markdown | No external news, ratings, financial statements, key people, web search or live AI interpretation yet | Medium |
-| News placeholder | Optional search/news provider if configured | Optional AI summary if configured | News provider results | Source-based summaries only if configured | News is not part of Phase 2; no provider means placeholder only | Placeholder |
+| News / External Intelligence | Curated manual file `data/external/company_news_curated.csv` | Future approved live API provider, disabled by default | Company, title, date, source, URL, summary, broker relevance, category, verification flag | Curated item display, broker relevance summary, suggested questions, key-people placeholder | Not a live news feed; empty curated file is allowed; source/date/link validation required before formal use; no invented people | Contextual |
 
 ## Confidence Level Definitions
 
 - **High**: suitable for internal broker market intelligence, with source and methodology caveats.
 - **Medium**: useful for discussion and preparation, but requires additional review before external use.
 - **Exploratory**: early analytical view that should be validated before being used as a formal basis.
+- **Contextual**: useful external context for meeting preparation, but not equivalent to structured market data.
 - **Placeholder**: interface exists, but the feature is not active unless providers are configured.

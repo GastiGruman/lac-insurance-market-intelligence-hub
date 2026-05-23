@@ -37,13 +37,11 @@ from src.ai_brief import (
 )
 from src.ai_utils import get_ai_config
 from src.news import (
-    build_company_news_query,
-    build_market_news_query,
-    fetch_news,
-    news_items_to_dataframe,
+    ENABLE_LIVE_NEWS,
+    build_company_news_context,
+    load_curated_company_news,
+    load_key_people_template,
 )
-from src.news_sources import get_news_config
-from src.news_summary import generate_news_ai_summary
 from src.ui_components import (
     configure_plotly_theme,
     inject_global_css,
@@ -878,7 +876,7 @@ st.sidebar.divider()
 render_sidebar_label("Current module")
 st.sidebar.write(f"**{selected_country} country module**")
 st.sidebar.caption("Version: Colombia MVP Demo")
-st.sidebar.caption("Phase: 4C - Internal-data AI Brief")
+st.sidebar.caption("Phase: 4D - Curated external intelligence")
 st.sidebar.caption("Data update mode: Static demo snapshot plus manual pipeline metadata")
 st.sidebar.caption("Automatic updates: Manual-run pipeline available; scheduling not yet enabled")
 st.sidebar.caption(f"Database mode: {'Candidate local test' if USE_CANDIDATE_DB else 'Stable demo'}")
@@ -2037,165 +2035,156 @@ if selected_view == "AI Brief":
 
 if selected_view == "News":
     try:
-        st.subheader("News")
-        st.caption(
-            "Optional source-based company and market news for broker meeting preparation."
+        render_section_header(
+            "Company News & External Intelligence",
+            "Curated external context for treaty-broker meeting preparation. No live search is run in this phase.",
         )
 
-        news_config = get_news_config()
-        ai_config_for_news = get_ai_config()
+        st.info(
+            "Current mode: curated/manual external intelligence. The app reads a small committed template file "
+            "and does not scrape, search the web, call news APIs, or require secrets."
+        )
 
-        if news_config.configured:
-            st.success(news_config.status_message)
-        else:
-            st.info("News module not configured.")
-            st.write(
-                "Configure an approved provider with `NEWS_API_KEY`, `BING_SEARCH_API_KEY`, "
-                "`SERPAPI_API_KEY`, or `GOOGLE_SEARCH_API_KEY` plus `GOOGLE_SEARCH_ENGINE_ID`."
-            )
+        curated_news_df = load_curated_company_news()
+        key_people_df = load_key_people_template()
 
-        news_col_a, news_col_b, news_col_c = st.columns([2, 2, 1])
+        news_company_options = ["TODAS"] + sorted(country_df["company_standard"].dropna().unique())
+        news_company_index = (
+            news_company_options.index(selected_company)
+            if selected_company in news_company_options
+            else 0
+        )
 
+        news_col_a, news_col_b = st.columns(2)
         with news_col_a:
-            news_company_options = sorted(country_df["company_standard"].dropna().unique())
-            news_company_index = (
-                news_company_options.index(selected_company)
-                if selected_company in news_company_options
-                else 0
-            )
             news_company = st.selectbox(
                 "Company news focus",
                 news_company_options,
                 index=news_company_index,
                 key="news_company_select",
             )
-
         with news_col_b:
-            news_limit = st.slider(
-                "News items",
-                min_value=3,
-                max_value=15,
-                value=8,
-                step=1,
-                key="news_limit_slider",
-            )
+            st.write("**Selected context**")
+            st.caption(f"Country: {selected_country}")
+            st.caption(f"Line of business: {'All lines' if selected_line == 'TODOS' else selected_line}")
+            st.caption(f"Years: {', '.join(str(int(year)) for year in selected_years)}")
 
-        with news_col_c:
-            refresh_news = st.button(
-                "Refresh news",
-                disabled=not news_config.configured,
-                key="refresh_news_button",
-            )
-
-        st.markdown("### Company News")
-
-        company_news_query = build_company_news_query(news_company, selected_country.title())
-        st.caption(f"Query: {company_news_query}")
-
-        company_news_result = fetch_news(
-            news_config,
-            query=company_news_query,
-            scope=f"Company news for {news_company}",
-            limit=news_limit,
-            refresh=refresh_news,
+        company_news_context = build_company_news_context(
+            curated_news_df,
+            selected_company=news_company,
+            selected_country=selected_country,
+            selected_line=selected_line,
+            selected_years=selected_years,
         )
 
-        if not company_news_result["configured"]:
-            st.warning("News module not configured.")
+        card_a, card_b, card_c, card_d = st.columns(4)
+        with card_a:
+            render_metric_card("Curated items", f"{company_news_context['total_items']:,}", "Manual file")
+        with card_b:
+            render_metric_card("Most recent date", company_news_context["latest_news_date"], "Curated item date")
+        with card_c:
+            render_metric_card("Top category", company_news_context["top_relevance_category"], "Broker relevance")
+        with card_d:
+            render_metric_card("Verified items", f"{company_news_context['verified_items']:,}", "Manual verification flag")
+
+        render_section_header(
+            "Curated Company News",
+            "Source-based items manually curated for broker context.",
+        )
+
+        news_items_df = company_news_context["news_items"]
+        if news_items_df.empty:
+            st.warning("No curated news available for the selected company yet.")
+            st.write("External news ingestion is planned as a future enhancement.")
         else:
-            st.caption(company_news_result["message"])
-
-        company_news_items = company_news_result["items"]
-
-        if company_news_items:
-            for idx, item in enumerate(company_news_items, start=1):
+            for idx, (_, item) in enumerate(news_items_df.head(10).iterrows(), start=1):
+                link = str(item.get("url") or "").strip()
+                title = item.get("title", "Untitled news item")
+                source = item.get("source", "Source not available")
+                date_text = item.get("date_display", "Date not available")
+                category = item.get("relevance_category", "Other")
+                verification = item.get("verification_status", "Manual/unverified")
                 with st.container():
-                    st.markdown(f"#### {idx}. [{item['title']}]({item['link']})")
-                    st.write(f"Source: {item['source']} | Date: {item['date']}")
-                    st.write(item["summary"])
-                    st.info(f"Broker relevance: {item['relevance']}")
+                    if link:
+                        st.markdown(f"#### {idx}. [{title}]({link})")
+                    else:
+                        st.markdown(f"#### {idx}. {title}")
+                    st.write(f"Source: {source} | Date: {date_text} | Category: {category} | Status: {verification}")
+                    st.write(item.get("summary", "Summary not available."))
+                    st.info(f"Broker relevance: {item.get('broker_relevance', 'Review relevance before use.')}")
+                    if item.get("notes"):
+                        st.caption(f"Notes: {item.get('notes')}")
 
-            company_news_df = news_items_to_dataframe(company_news_items)
             st.download_button(
-                label="Download company news CSV",
-                data=company_news_df.to_csv(index=False, encoding="utf-8-sig"),
+                label="Download curated company news CSV",
+                data=news_items_df.to_csv(index=False, encoding="utf-8-sig"),
                 file_name=f"{news_company.lower().replace(' ', '_')}_news.csv",
                 mime="text/csv",
                 key="download_company_news_csv",
             )
 
-            if ai_config_for_news.configured:
-                if st.button("Generate AI company news summary", key="ai_company_news_summary_button"):
-                    with st.spinner("Summarizing news with AI..."):
-                        news_ai_summary = generate_news_ai_summary(
-                            ai_config_for_news,
-                            company_news_items,
-                            scope=f"Company news for {news_company}",
-                        )
-                    if news_ai_summary["ok"]:
-                        st.markdown(news_ai_summary["text"])
-                    else:
-                        st.warning(news_ai_summary["text"])
-            else:
-                st.info("AI features are not configured yet.")
-        elif company_news_result["configured"]:
-            st.info("No company news returned by the configured provider.")
+        render_section_header(
+            "Broker Interpretation",
+            "Rule-based interpretation of curated external context.",
+        )
+        st.write(company_news_context["broker_relevance_summary"])
 
-        st.divider()
+        render_section_header(
+            "Suggested Broker Questions",
+            "Questions generated from curated news categories and source context.",
+        )
+        for question in company_news_context["suggested_questions"]:
+            st.write(f"- {question}")
 
-        st.markdown("### Market Signals / News")
+        with st.expander("Company news context for future AI Brief integration", expanded=False):
+            context_preview = {
+                key: value
+                for key, value in company_news_context.items()
+                if key != "news_items"
+            }
+            context_preview["news_items"] = (
+                news_items_df.drop(columns=["date"], errors="ignore")
+                .head(10)
+                .to_dict(orient="records")
+                if not news_items_df.empty
+                else []
+            )
+            st.json(context_preview)
 
-        market_news_query = build_market_news_query(selected_country.title())
-        st.caption(f"Query: {market_news_query}")
-
-        market_news_result = fetch_news(
-            news_config,
-            query=market_news_query,
-            scope=f"Market news for {selected_country}",
-            limit=news_limit,
-            refresh=refresh_news,
+        render_section_header(
+            "Key People / Leadership Intelligence",
+            "Manual-only placeholder. No web search and no invented people.",
         )
 
-        if market_news_result["configured"]:
-            st.caption(market_news_result["message"])
-
-        market_news_items = market_news_result["items"]
-
-        if market_news_items:
-            for idx, item in enumerate(market_news_items, start=1):
-                with st.container():
-                    st.markdown(f"#### {idx}. [{item['title']}]({item['link']})")
-                    st.write(f"Source: {item['source']} | Date: {item['date']}")
-                    st.write(item["summary"])
-                    st.info(f"Broker relevance: {item['relevance']}")
-
-            market_news_df = news_items_to_dataframe(market_news_items)
-            st.download_button(
-                label="Download market news CSV",
-                data=market_news_df.to_csv(index=False, encoding="utf-8-sig"),
-                file_name=f"{selected_country.lower()}_market_news.csv",
-                mime="text/csv",
-                key="download_market_news_csv",
+        if key_people_df.empty:
+            st.info(
+                "Key people search is not yet connected. This will be added in a future external intelligence phase."
             )
+        else:
+            people_df = key_people_df.copy()
+            if news_company != "TODAS" and "company_name" in people_df.columns:
+                people_df = people_df[
+                    people_df["company_name"].astype(str).str.upper().str.contains(str(news_company).upper(), na=False)
+                ]
+            if people_df.empty:
+                st.info("No manually curated leadership data is available for the selected company.")
+            else:
+                st.dataframe(people_df, width="stretch", hide_index=True)
 
-            if ai_config_for_news.configured:
-                if st.button("Generate AI market news summary", key="ai_market_news_summary_button"):
-                    with st.spinner("Summarizing market news with AI..."):
-                        market_news_ai_summary = generate_news_ai_summary(
-                            ai_config_for_news,
-                            market_news_items,
-                            scope=f"Market news for {selected_country}",
-                        )
-                    if market_news_ai_summary["ok"]:
-                        st.markdown(market_news_ai_summary["text"])
-                    else:
-                        st.warning(market_news_ai_summary["text"])
-        elif market_news_result["configured"]:
-            st.info("No market news returned by the configured provider.")
+        with st.expander("Future live news mode", expanded=False):
+            if ENABLE_LIVE_NEWS:
+                st.warning(
+                    "Live mode flag is enabled, but live retrieval is intentionally not implemented in Phase 4D."
+                )
+            else:
+                st.write(
+                    "Live news mode is disabled by default. A future provider-based implementation may use "
+                    "approved APIs only, with caching and governance controls. No uncontrolled scraping will be used."
+                )
 
         st.warning(
-            "News note: items come from the configured search/news provider and should be verified "
-            "against the original source before client use. News summaries are source-based and optional."
+            "External intelligence is not the same as Fasecolda structured market data. News items should be "
+            "treated as contextual information, with source/date/link validation required before formal use."
         )
     except Exception as exc:
         render_section_error(exc)

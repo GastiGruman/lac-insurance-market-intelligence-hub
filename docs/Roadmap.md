@@ -109,6 +109,18 @@ Focus:
 - Keep the module deterministic and functional without external API keys.
 - Leave external AI, news, key people, ratings and financial statements to later governed phases.
 
+### Phase 4D - Curated Company News / External Intelligence
+
+Status: implemented in this branch.
+
+Focus:
+
+- Add a controlled external intelligence layer using curated/manual files.
+- Display news source, date, link, category, verification flag and broker relevance.
+- Generate rule-based broker interpretation and suggested questions.
+- Add key people / leadership template without inventing names.
+- Keep live news retrieval disabled by default and reserve it for future approved providers.
+
 ## Phase 5 - Controlled External AI Module
 
 Status: planned.
@@ -120,13 +132,13 @@ Focus:
 - Clear source and period citations.
 - Broker meeting preparation support.
 
-## Phase 6 - Company News Module
+## Phase 6 - Live Company News Module
 
 Status: planned.
 
 Focus:
 
-- Source-based company and market news.
+- Approved API-based company and market news.
 - Regulatory and rating-action monitoring where available.
 - Broker relevance summaries.
 - Verification warnings before client use.

@@ -2,93 +2,107 @@
 
 ## Purpose
 
-The News module adds optional source-based company and market news for broker meeting preparation.
+The News / External Intelligence module gives treaty brokers a controlled place to review manually curated public context around a selected company.
 
-It is designed to support:
+It is designed to support meeting preparation, not automated media monitoring or formal due diligence.
 
-- Recent company news.
-- Regulatory news.
-- Rating-action monitoring when returned by the configured provider.
-- Corporate press releases when returned by the configured provider.
-- Market-relevant insurance, macro, regulatory and AI/technology signals.
+## Current Mode: Curated / Manual
 
-## Sources Supported
+Phase 4D uses curated/manual mode only.
 
-The module is optional and provider-based.
+The app reads:
 
-Supported environment variables:
+- `data/external/company_news_curated.csv`
+- `data/external/company_key_people_template.csv`
 
-- `NEWS_API_KEY`
-- `BING_SEARCH_API_KEY`
-- `SERPAPI_API_KEY`
-- `GOOGLE_SEARCH_API_KEY`
-- `GOOGLE_SEARCH_ENGINE_ID` for Google Custom Search
+These files are small, committed templates. They do not contain scraped dumps, confidential information, secrets, or raw provider output.
 
-If no provider is configured, the app shows:
+If no rows are available for a selected company, the app shows:
 
-`News module not configured.`
+`No curated news available for the selected company yet.`
 
-## Configuration
+## Curated News File Fields
 
-Set provider keys as environment variables. Do not hardcode API keys in the repository.
+Expected columns:
 
-Example provider options:
+- `company_name`
+- `company_name_norm`
+- `country`
+- `title`
+- `date`
+- `source`
+- `url`
+- `summary`
+- `broker_relevance`
+- `relevance_category`
+- `relevance_score`
+- `is_verified`
+- `notes`
 
-- NewsAPI for general news search.
-- Bing Search for news search.
-- SerpAPI with Google News engine.
-- Google Custom Search with a configured search engine ID.
+Each row should represent one manually reviewed public item. Source, date and link should be clear enough for a broker or reviewer to validate before use.
 
-## Update Frequency And Caching
+## Broker Relevance Categories
 
-The module uses Streamlit controls plus local JSON cache files under:
+Supported categories:
 
-`outputs/news_cache/`
+- Strategy
+- Financial Results
+- Regulation
+- Claims / Catastrophe
+- Product / Distribution
+- M&A / Partnerships
+- Technology / AI
+- Leadership
+- Reinsurance / Capital
+- Other
 
-Default local cache TTL:
+## Key People / Leadership
 
-- 12 hours.
+Phase 4D does not search for or invent key people.
 
-The app includes a refresh button to request fresh provider results.
+The template file is:
 
-## How News Is Displayed
+`data/external/company_key_people_template.csv`
 
-Each news item shows:
+Expected columns:
 
-- Title.
-- Source.
-- Date.
-- Link.
-- Short summary.
-- Broker relevance.
+- `company_name`
+- `role`
+- `person_name`
+- `source`
+- `source_url`
+- `last_verified_date`
+- `notes`
 
-Broker relevance is rule-based and flags possible themes such as:
+Only manually verified and appropriate names should be added in the future.
 
-- Reinsurance angle.
-- Regulatory monitoring.
-- Rating or credit watch.
-- Market performance context.
-- AI or technology signal.
+## Future Live Mode
 
-## AI Summaries
+Live news retrieval is disabled by default. Future implementation may use approved API-based providers only, with caching, source metadata, and governance controls.
 
-If AI is configured, the app can summarize retrieved news items.
+Uncontrolled scraping is not part of the design.
 
-AI summaries include:
+## AI Brief Integration
 
-- What happened.
-- Why it matters.
-- Possible reinsurance relevance.
-- Suggested question for client meeting.
-- Sources used.
+The app builds a structured `company_news_context` containing:
 
-The AI prompt receives only the retrieved news item title, source, date, link, summary and relevance. It must cite source and date and must not invent facts.
+- selected company and filters,
+- curated news items,
+- recent topics,
+- broker relevance summary,
+- suggested questions,
+- limitations.
+
+Future AI Brief versions can consume this context, but Phase 4D does not call an external LLM.
+
+## Methodology / Trust Note
+
+External intelligence is not the same as Fasecolda structured market data. News items should be treated as contextual information, with source/date/link validation required before formal use.
 
 ## Limitations
 
-- The module does not scrape aggressively.
-- Search results depend on the configured provider.
-- Dates may be unavailable for some providers.
-- Search APIs may return partial, duplicated or irrelevant results.
-- News should be verified against the original source before client use.
-- AI summaries are optional and should be reviewed before use in meetings.
+- Current version is not a live news feed.
+- Empty curated files are valid and should show friendly fallbacks.
+- News relevance is rule-based and manually supplied.
+- News should be validated against the original public source before use in client or market presentations.
+- No paid APIs or secrets are required for the app to run.

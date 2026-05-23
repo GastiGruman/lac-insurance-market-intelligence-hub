@@ -177,6 +177,14 @@ The brief consolidates structured context already available in the app:
 
 The output should be treated as a structured meeting-preparation aid. It can help a broker identify what to review, what to ask, and what to validate, but it is not a formal actuarial, legal, accounting, financial or placement recommendation.
 
+## External Intelligence Methodology
+
+The News / External Intelligence module in Phase 4D uses curated/manual files only. It does not scrape websites, call live news APIs, search the internet, or require secrets.
+
+External intelligence is not the same as Fasecolda structured market data. News items are contextual meeting-preparation inputs and require source, date and link validation before formal use.
+
+Key people and leadership information is not searched automatically and must not be invented. It should only be displayed when manually curated from an appropriate source.
+
 ## Inappropriate Uses
 
 Do not use the app as:

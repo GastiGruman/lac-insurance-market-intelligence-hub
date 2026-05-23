@@ -2,9 +2,9 @@
 
 ## Current Phase
 
-**Phase 4C - Internal-data AI Brief**
+**Phase 4D - Curated Company News / External Intelligence**
 
-The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal broker testing. The current focus is connecting the AI Brief to internal structured app data while preserving the stable demo database, advanced Company Brief, advanced Reinsurance View, and the manual Phase 3 pipeline.
+The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal broker testing. The current focus is adding a controlled curated/manual external intelligence layer while preserving the stable demo database, advanced Company Brief, advanced Reinsurance View, internal-data AI Brief, and the manual Phase 3 pipeline.
 
 ## Design Principle
 
@@ -28,9 +28,9 @@ The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal brok
 | Phase 2 | Colombia reliable / trust layer | Completed in this branch | Data dictionary, methodology, validation notes, mapping methodology, and source-to-module traceability added or updated. |
 | Phase 3 | Automatic Fasecolda data ingestion pipeline | In progress in this branch | Manual-run pipeline structure, fallback source registry, metadata, validations, and safe DuckDB candidate strategy. |
 | Phase 3B | Candidate database review and promotion readiness | In progress in this branch | Compares candidate DuckDB against stable demo DB and blocks promotion unless review recommends it. |
-| Phase 4 | Broker-focused refinements | In progress | Phase 4A improved Company Brief; Phase 4B improved Reinsurance View; Phase 4C connects AI Brief to internal structured data without external API dependency. |
+| Phase 4 | Broker-focused refinements | In progress | Phase 4A improved Company Brief; Phase 4B improved Reinsurance View; Phase 4C connects AI Brief to internal structured data; Phase 4D adds curated/manual external intelligence. |
 | Phase 5 | Controlled external AI module | Planned | Future LLM outputs must be grounded in structured data and approved sources. |
-| Phase 6 | Company news module | Planned | Source-based news and broker relevance, with provider configuration. |
+| Phase 6 | Live company news module | Planned | Future source-based live news retrieval with approved provider configuration. |
 
 ## Current Sources
 
@@ -117,6 +117,7 @@ Add a separate official technical indicator module using Fasecolda - Indicadores
 - Review of source traceability and methodology.
 - Broker review of the advanced Company Brief and Reinsurance View workflows for meeting preparation.
 - Broker review of the internal-data AI Brief workflow for meeting preparation.
+- Broker review of curated/manual News and External Intelligence workflow.
 
 ## Not Yet Ready For
 
@@ -168,3 +169,18 @@ It uses:
 - Technical signals and methodology limitations.
 
 It does not use internet, company news, ratings, financial statements, key people, leadership data or live LLM interpretation. Those items remain future external-intelligence phases.
+
+## Phase 4D - Curated Company News / External Intelligence
+
+The News module has been converted into a safe curated/manual external intelligence layer. It now reads a small committed template file under `data/external/` and does not require external APIs, secrets, scraping, or internet access.
+
+It supports:
+
+- Selected company context.
+- Curated news item structure with source, date, link, category and broker relevance.
+- Summary cards for item count, latest date, top category and verified/manual items.
+- Broker interpretation and suggested questions.
+- Key people / leadership placeholder without inventing names.
+- Clear limitations that external intelligence is contextual and must be validated before formal use.
+
+Live provider-based news retrieval remains a future governed enhancement.
