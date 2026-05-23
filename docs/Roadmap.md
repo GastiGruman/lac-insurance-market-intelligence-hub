@@ -59,6 +59,8 @@ Focus:
 - Cleaner reports.
 - Better signal thresholds.
 - More explicit caveats where needed.
+- Separate official technical indicator views from analytical Claims / Premiums ratios where Fasecolda methodology is available.
+- Show both the app's Claims / Premiums ratio and official technical indicators or combined ratios when source methodology has been confirmed.
 
 ## Phase 5 - Controlled AI Module
 

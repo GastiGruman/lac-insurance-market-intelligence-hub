@@ -158,6 +158,6 @@ The Streamlit app does not run the pipeline automatically. Data Status reads `da
 - Source discovery depends on Fasecolda page structure.
 - Download requires direct downloadable file URLs.
 - Indicadores de Gestion parsing remains partially source-specific and is treated as exploratory.
+- The app's current Claims / Premiums ratio is an analytical `claims / gross_written_premium` metric and should not be treated as an official technical loss ratio or combined ratio without confirmed source methodology.
 - The current phase is manual-run only.
 - Scheduling should be implemented later in a controlled corporate environment.
-

@@ -4,7 +4,7 @@
 
 Actualmente, la información del mercado asegurador colombiano está disponible en fuentes públicas como Fasecolda y la Superintendencia Financiera. Sin embargo, esta información suele estar dispersa en múltiples archivos, formatos y periodos, lo que hace que el análisis sea manual, lento y poco escalable.
 
-Para un broker, esta información es especialmente valiosa porque permite entender la evolución de compañías, ramos, primas, siniestros, siniestralidad y participación de mercado antes de reuniones comerciales o técnicas.
+Para un broker, esta información es especialmente valiosa porque permite entender la evolución de compañías, ramos, primas, siniestros, ratio siniestros / primas y participación de mercado antes de reuniones comerciales o técnicas.
 
 ## 2. Problema identificado
 
@@ -26,7 +26,7 @@ La primera versión se construyó como un MVP enfocado en Colombia, utilizando i
 
 La versión actual permite:
 
-- Visualizar primas, siniestros y siniestralidad.
+- Visualizar primas, siniestros y ratio siniestros / primas.
 - Filtrar por año, compañía, ramo y ciudad.
 - Analizar la evolución histórica del mercado.
 - Explorar el desempeño de una compañía específica.
@@ -41,7 +41,7 @@ Esta herramienta puede ayudar a los brokers a:
 - Preparar reuniones con mayor profundidad.
 - Detectar tendencias técnicas y comerciales.
 - Identificar compañías con crecimiento relevante.
-- Identificar ramos con deterioro de siniestralidad.
+- Identificar ramos con deterioro del ratio siniestros / primas.
 - Comparar desempeño entre aseguradoras.
 - Generar conversaciones más estratégicas con clientes y mercados.
 - Reducir tiempo de análisis manual.
@@ -52,7 +52,7 @@ Antes de una reunión con una aseguradora, un broker podría usar la herramienta
 
 - Evolución de primas de la compañía.
 - Evolución de siniestros.
-- Siniestralidad por año.
+- Ratio siniestros / primas por año.
 - Principales ramos de la compañía.
 - Participación relativa frente al mercado.
 - Ramos donde podría haber oportunidades de conversación técnica o comercial.
@@ -75,7 +75,9 @@ El MVP ya cuenta con:
 
 Estado: completado en versión inicial.
 
-Incluye consolidación de información pública de Fasecolda, dashboard interactivo y análisis básico de primas, siniestros y siniestralidad.
+Incluye consolidación de información pública de Fasecolda, dashboard interactivo y análisis básico de primas, siniestros y ratio siniestros / primas.
+
+Nota metodológica: el ratio siniestros / primas del MVP es una métrica analítica calculada como `claims / gross_written_premium`. No debe interpretarse como siniestralidad técnica oficial, índice combinado u otro indicador técnico de Fasecolda sin confirmar la metodología de fuente.
 
 ### Fase 2 — Validación y robustecimiento
 

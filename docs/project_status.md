@@ -41,7 +41,7 @@ Used for:
 
 - Premiums.
 - Claims.
-- Loss ratio.
+- Claims / Premiums analytical ratio.
 - Market share.
 - Growth.
 - Company, line, city, and year filters.
@@ -98,6 +98,15 @@ Warnings should be interpreted as review signals, not automatic rejection of the
 - Not yet reviewed as a production data product by IT/Data/Compliance.
 - AI and news providers are not part of Phase 2.
 - Figures must be validated before formal external presentation.
+- The app's Claims / Premiums ratio is an analytical `claims / gross_written_premium` metric. It should not be interpreted as Fasecolda's official technical siniestralidad, technical loss ratio, or combined ratio unless specifically stated.
+- SOAT should be reviewed carefully because official Fasecolda technical views may include components not captured by a simple claims/premiums ratio.
+
+## Future Enhancement
+
+Add a separate official technical indicator module using Fasecolda - Indicadores de Gestion where available and methodologically confirmed. The app should eventually show both:
+
+- Claims / Premiums analytical ratio.
+- Official technical indicator or combined ratio, when available and validated.
 
 ## Ready For
 

@@ -242,8 +242,9 @@ def answer_ask_data(
                 f"- Company premiums: {format_millions(company_premium)}.\n"
                 f"- Selected market premiums: {format_millions(market_premium)}.\n"
                 f"- Market share: {format_percentage(share)}.\n"
-                f"- Company loss ratio: {format_percentage(company_lr)}.\n"
-                f"- Selected market loss ratio: {format_percentage(market_lr)}."
+                f"- Company Claims / Premiums ratio: {format_percentage(company_lr)}.\n"
+                f"- Selected market Claims / Premiums ratio: {format_percentage(market_lr)}.\n"
+                "Note: this is an analytical claims-to-premium ratio, not necessarily Fasecolda's official technical loss ratio or combined ratio."
             ),
         }
 
@@ -292,7 +293,7 @@ def answer_ask_data(
             "answer": (
                 f"Five meeting questions for {company} based on the selected data:\n"
                 "- What explains the latest premium movement versus the prior available year?\n"
-                "- Which lines are driving loss ratio pressure or improvement?\n"
+                "- Which lines are driving claims-to-premium pressure or improvement?\n"
                 "- Are growth targets aligned with underwriting discipline and pricing actions?\n"
                 "- Where could reinsurance limits, retention, reinstatements, or exclusions be reviewed?\n"
                 "- What data should be validated before using this analysis in a client discussion?\n"

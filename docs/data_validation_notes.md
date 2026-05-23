@@ -44,6 +44,8 @@ Indicadores de Gestion 2025 is checked for:
 
 Ratios are recalculated after aggregation. This matters because summing ratios produces misleading results. When extracted ratios differ materially from recalculated ratios, the app flags the record for review.
 
+The app's core market ratio labelled Claims / Premiums or Siniestros / Primas is calculated as `claims / gross_written_premium` from the normalized app database. It is not automatically equivalent to Fasecolda's official technical siniestralidad, incurred loss ratio, paid loss ratio, or combined ratio. SOAT and other technical or regulated lines should be reviewed carefully before comparing app outputs to Fasecolda visualizer indicators.
+
 ## Premium and Retention Checks
 
 A retained premium greater than gross written premium may indicate:

@@ -72,7 +72,7 @@ Ratios are recalculated at the selected aggregation level. They are not summed.
 
 | Ratio | Calculation |
 |---|---|
-| Loss ratio | `claims / gross_written_premium` |
+| Claims / Premiums | `claims / gross_written_premium` |
 | Market share | `company gross_written_premium / selected market gross_written_premium` |
 | Premium growth | `current period premium / previous period premium - 1` |
 | Reinsurance cession ratio | `reinsurance_ceded_premium / gross_written_premium` |
@@ -80,6 +80,29 @@ Ratios are recalculated at the selected aggregation level. They are not summed.
 | Paid claims ratio | `paid_claims / gross_written_premium` |
 
 If the denominator is zero or missing, the app should avoid calculation and show data as not available.
+
+## Difference Between App Claims / Premiums Ratio And Fasecolda Technical Indicators
+
+The app currently shows an analytical Claims / Premiums ratio, also labelled in Spanish as Siniestros / Primas. It is calculated from the available normalized app database as:
+
+`claims / gross_written_premium`
+
+This metric is useful for broker market intelligence because it provides a consistent, filterable view across companies, lines, cities, and years. However, it should not be interpreted as Fasecolda's official technical loss ratio, technical siniestralidad, combined ratio, incurred loss ratio, or paid loss ratio unless the source methodology is explicitly confirmed.
+
+Fasecolda's visualizador or other official technical views may include or be affected by:
+
+- Incurred claims.
+- Paid claims.
+- Claim reserves.
+- Earned premiums.
+- Emitted premiums.
+- Retained premiums.
+- Commissions.
+- Administrative expenses.
+- Personnel expenses.
+- Other technical expenses.
+
+Therefore, the app's Claims / Premiums ratio should not be expected to match official Fasecolda technical indicators one-to-one without confirming the exact numerator, denominator, period basis, and expense treatment. SOAT should be reviewed especially carefully because Fasecolda's technical views may include methodological components that are not captured by a simple claims/premiums ratio.
 
 ## Company Mapping
 

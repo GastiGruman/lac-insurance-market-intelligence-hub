@@ -166,7 +166,7 @@ summary_year_metric = (
 print("\nResumen por año y métrica:")
 print(summary_year_metric)
 
-# 12. Validación básica de siniestralidad por año
+# 12. Validación básica del ratio analítico siniestros / primas por año
 premium = (
     df[df["metric_name"] == "gross_written_premium"]
     .groupby(["country", "year"], as_index=False)["metric_value"]
@@ -185,15 +185,15 @@ loss_ratio = premium.merge(claims, on=["country", "year"], how="left")
 loss_ratio["claims"] = loss_ratio["claims"].fillna(0)
 loss_ratio["loss_ratio"] = loss_ratio["claims"] / loss_ratio["premium"]
 
-print("\nSiniestralidad por año:")
+print("\nRatio analítico siniestros / primas por año:")
 print(loss_ratio)
 
 high_loss_ratio = loss_ratio[loss_ratio["loss_ratio"] > 1]
 
 add_result(
-    "annual_loss_ratio_above_100",
+    "annual_claims_premiums_ratio_above_100",
     "PASS" if len(high_loss_ratio) == 0 else "WARNING",
-    f"{len(high_loss_ratio):,} años con siniestralidad superior a 100%"
+    f"{len(high_loss_ratio):,} años con ratio analítico siniestros / primas superior a 100%"
 )
 
 # ============================================================

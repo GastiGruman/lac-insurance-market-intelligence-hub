@@ -71,6 +71,21 @@ PIPELINE_STATUS_PATH = Path("data/metadata/latest_pipeline_status.json")
 CORE_MARKET_SOURCE = "FASECOLDA - CIUDADES Y RAMOS"
 CORE_SOURCE_VALUE_MULTIPLIER = 1_000
 DEBUG_MODE = False
+CLAIMS_PREMIUM_RATIO_LABEL_ES = "Siniestros / Primas"
+CLAIMS_PREMIUM_RATIO_LABEL_EN = "Claims / Premiums"
+CLAIMS_PREMIUM_RATIO_NOTE = (
+    "The 'Claims / Premiums' ratio is an analytical metric calculated from the available "
+    "app database. It may not be equivalent to Fasecolda's official technical loss ratio, "
+    "combined ratio, or other technical indicators, which may use different premium, "
+    "claims, reserve, commission, and expense bases."
+)
+CLAIMS_PREMIUM_RATIO_NOTE_ES = (
+    "El ratio 'Siniestros / Primas' corresponde a una metrica analitica calculada con "
+    "la informacion disponible en la base de la app. No necesariamente equivale a la "
+    "siniestralidad tecnica oficial, indice combinado u otros indicadores tecnicos "
+    "publicados por Fasecolda, que pueden usar bases de prima, siniestros, reservas, "
+    "comisiones y gastos diferentes."
+)
 
 # ============================================================
 # FUNCIONES DE CARGA
@@ -497,6 +512,7 @@ def make_display_summary(summary_df):
     if "market_share" in display_df.columns:
         display_df["market_share"] = display_df["market_share"].map(format_percentage)
 
+    display_df = display_df.rename(columns={"siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_ES})
     return display_df
 
 
@@ -551,7 +567,7 @@ def generate_structured_company_brief(company_name, company_df, market_df):
 
     executive_summary = (
         f"{company_name} registró primas por {format_millions(latest_premium)} en {latest_year}, "
-        f"con siniestros por {format_millions(latest_claims)} y una siniestralidad de "
+        f"con siniestros por {format_millions(latest_claims)} y un ratio siniestros / primas de "
         f"{format_percentage(latest_lr)}. "
     )
 
@@ -574,7 +590,7 @@ def generate_structured_company_brief(company_name, company_df, market_df):
     key_points = [
         f"Primas último año disponible: {format_millions(latest_premium)}.",
         f"Siniestros último año disponible: {format_millions(latest_claims)}.",
-        f"Siniestralidad último año disponible: {format_percentage(latest_lr)}.",
+        f"Ratio siniestros / primas último año disponible: {format_percentage(latest_lr)}.",
         f"Crecimiento de primas vs año anterior: {format_percentage(premium_growth)}.",
         f"Market share estimado sobre mercado filtrado: {format_percentage(market_share)}.",
         f"Principales ramos: {top_lines_text}."
@@ -582,7 +598,7 @@ def generate_structured_company_brief(company_name, company_df, market_df):
 
     questions = [
         f"¿Qué está explicando la evolución reciente de primas de {company_name}?",
-        f"¿Hay algún ramo donde la siniestralidad de {company_name} esté generando presión técnica?",
+        f"¿Hay algún ramo donde el ratio siniestros / primas de {company_name} esté generando presión técnica?",
         "¿La estrategia de crecimiento está acompañada por ajustes de pricing, retención o selección de riesgos?",
         "¿Existen oportunidades para revisar estructura de reaseguro, límites, deducibles o acumulaciones?",
         "¿Qué apoyo de análisis, benchmarking o market intelligence podría aportar el broker?"
@@ -897,7 +913,7 @@ with col1:
 with col2:
     render_metric_card("Claims", format_millions(total_claims), "Reported claims")
 with col3:
-    render_metric_card("Loss ratio", format_percentage(loss_ratio), "Claims / premiums")
+    render_metric_card(CLAIMS_PREMIUM_RATIO_LABEL_EN, format_percentage(loss_ratio), "Analytical claims-to-premium ratio")
 with col4:
     render_metric_card("Filtered records", f"{len(filtered_df):,}", "Current selection")
 
@@ -909,6 +925,8 @@ st.caption(
     f"Last available dataset date: "
     f"{analysis_last_update.strftime('%d/%m/%Y') if pd.notna(analysis_last_update) else 'N/A'}"
 )
+
+st.info(CLAIMS_PREMIUM_RATIO_NOTE)
 
 st.divider()
 
@@ -946,7 +964,7 @@ if selected_view == "Market Overview":
     try:
         render_section_header(
             "Executive Market Dashboard",
-            "A broker-focused view of premiums, claims, loss ratio, market movement, and portfolio concentration under the selected filters.",
+            "A broker-focused view of premiums, claims, claims-to-premium ratio, market movement, and portfolio concentration under the selected filters.",
         )
 
         action_col_a, action_col_b, action_col_c = st.columns(3)
@@ -957,7 +975,7 @@ if selected_view == "Market Overview":
         with action_col_c:
             render_metric_card("Key action", "Data Status", "Validate coverage and warnings")
 
-        render_section_header("Market Trends", "Premiums, claims and loss ratio for the selected market scope.")
+        render_section_header("Market Trends", "Premiums, claims and claims-to-premium ratio for the selected market scope.")
 
         year_summary = (
             filtered_df
@@ -1004,10 +1022,10 @@ if selected_view == "Market Overview":
                 x="year",
                 y="siniestralidad",
                 markers=True,
-                title="Siniestralidad anual",
+                title=f"{CLAIMS_PREMIUM_RATIO_LABEL_ES} anual",
                 labels={
                     "year": "Año",
-                    "siniestralidad": "Siniestralidad"
+                    "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_ES
                 }
             )
 
@@ -1035,7 +1053,7 @@ if selected_view == "Market Overview":
 
         yearly_display = make_display_summary(yearly_lr)
         st.dataframe(
-            yearly_display[["year", "primas", "siniestros", "siniestralidad", "premium_growth"]],
+            yearly_display[["year", "primas", "siniestros", CLAIMS_PREMIUM_RATIO_LABEL_ES, "premium_growth"]],
             width="stretch"
         )
 
@@ -1155,7 +1173,7 @@ if selected_view == "Company Explorer":
                 k1, k2, k3 = st.columns(3)
                 k1.metric("Primas último año", format_millions(latest_company_premium))
                 k2.metric("Siniestros último año", format_millions(latest_company_claims))
-                k3.metric("Siniestralidad último año", format_percentage(latest_company_lr))
+                k3.metric(f"{CLAIMS_PREMIUM_RATIO_LABEL_ES} último año", format_percentage(latest_company_lr))
 
             col_a, col_b = st.columns(2)
 
@@ -1181,10 +1199,10 @@ if selected_view == "Company Explorer":
                     x="year",
                     y="siniestralidad",
                     markers=True,
-                    title=f"Siniestralidad anual — {selected_company}",
+                    title=f"{CLAIMS_PREMIUM_RATIO_LABEL_ES} anual — {selected_company}",
                     labels={
                         "year": "Año",
-                        "siniestralidad": "Siniestralidad"
+                        "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_ES
                     }
                 )
 
@@ -1223,7 +1241,7 @@ if selected_view == "Company Explorer":
 
             company_display = make_display_summary(company_summary)
             st.dataframe(
-                company_display[["year", "primas", "siniestros", "siniestralidad", "premium_growth"]],
+                company_display[["year", "primas", "siniestros", CLAIMS_PREMIUM_RATIO_LABEL_ES, "premium_growth"]],
                 width="stretch"
             )
     except Exception as exc:
@@ -1272,10 +1290,10 @@ if selected_view == "Line of Business Explorer":
                     x="year",
                     y="siniestralidad",
                     markers=True,
-                    title=f"Siniestralidad anual — {selected_line}",
+                    title=f"{CLAIMS_PREMIUM_RATIO_LABEL_ES} anual — {selected_line}",
                     labels={
                         "year": "Año",
-                        "siniestralidad": "Siniestralidad"
+                        "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_ES
                     }
                 )
 
@@ -1310,7 +1328,7 @@ if selected_view == "Line of Business Explorer":
 
             st.plotly_chart(fig_line_company, width="stretch")
 
-            st.subheader("Siniestralidad por compañía en el ramo")
+            st.subheader(f"{CLAIMS_PREMIUM_RATIO_LABEL_ES} por compañía en el ramo")
 
             line_company_lr = prepare_premium_claims_summary(line_df, ["company_standard"])
             line_company_lr = line_company_lr[line_company_lr["primas"] >= minimum_premium]
@@ -1322,10 +1340,10 @@ if selected_view == "Line of Business Explorer":
                     line_company_lr,
                     x="company_standard",
                     y="siniestralidad",
-                    title=f"Siniestralidad por compañía — {selected_line}",
+                    title=f"{CLAIMS_PREMIUM_RATIO_LABEL_ES} por compañía — {selected_line}",
                     labels={
                         "company_standard": "Compañía",
-                        "siniestralidad": "Siniestralidad"
+                        "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_ES
                     },
                     hover_data=["primas_mm"]
                 )
@@ -1339,7 +1357,7 @@ if selected_view == "Line of Business Explorer":
 
             line_display = make_display_summary(line_summary)
             st.dataframe(
-                line_display[["year", "primas", "siniestros", "siniestralidad", "premium_growth"]],
+                line_display[["year", "primas", "siniestros", CLAIMS_PREMIUM_RATIO_LABEL_ES, "premium_growth"]],
                 width="stretch"
             )
     except Exception as exc:
@@ -1417,20 +1435,23 @@ if selected_view == "Company Brief":
                 render_section_header("Executive Snapshot")
                 st.write(brief["executive_summary"])
 
-                render_section_header("Technical Performance", "Premium, claims and loss ratio evolution.")
+                render_section_header("Technical Performance", "Premium, claims and claims-to-premium ratio evolution.")
                 premium_evolution = brief["premium_evolution"].copy()
                 if not premium_evolution.empty:
                     premium_evolution["primas_display"] = premium_evolution["primas"].map(format_millions)
                     premium_evolution["siniestros_display"] = premium_evolution["siniestros"].map(format_millions)
                     premium_evolution["siniestralidad_display"] = premium_evolution["siniestralidad"].map(format_percentage)
                     premium_evolution["premium_growth_display"] = premium_evolution["premium_growth"].map(format_percentage)
+                    premium_evolution_display = premium_evolution.rename(
+                        columns={"siniestralidad_display": CLAIMS_PREMIUM_RATIO_LABEL_ES}
+                    )
                     st.dataframe(
-                        premium_evolution[
+                        premium_evolution_display[
                             [
                                 "year",
                                 "primas_display",
                                 "siniestros_display",
-                                "siniestralidad_display",
+                                CLAIMS_PREMIUM_RATIO_LABEL_ES,
                                 "premium_growth_display",
                             ]
                         ],
@@ -1477,20 +1498,26 @@ if selected_view == "Company Brief":
                         width="stretch"
                     )
 
-                render_section_header("Loss Ratio Watch", "Lines with deteriorating technical performance.")
+                render_section_header("Claims / Premiums Watch", "Lines with deteriorating analytical claims-to-premium ratio.")
                 deterioration_display = brief["deteriorating_loss_ratio_lines"].copy()
                 if deterioration_display.empty:
                     st.info("Data not available")
                 else:
                     deterioration_display["siniestralidad_display"] = deterioration_display["siniestralidad"].map(format_percentage)
                     deterioration_display["loss_ratio_change_display"] = deterioration_display["loss_ratio_change"].map(format_percentage)
+                    deterioration_display = deterioration_display.rename(
+                        columns={
+                            "siniestralidad_display": CLAIMS_PREMIUM_RATIO_LABEL_ES,
+                            "loss_ratio_change_display": "Change in Claims / Premiums",
+                        }
+                    )
                     st.dataframe(
                         deterioration_display[
                             [
                                 "line_of_business_standard",
                                 "year",
-                                "siniestralidad_display",
-                                "loss_ratio_change_display",
+                                CLAIMS_PREMIUM_RATIO_LABEL_ES,
+                                "Change in Claims / Premiums",
                             ]
                         ],
                         width="stretch"
@@ -1523,7 +1550,7 @@ if selected_view == "Company Brief":
                     render_metric_card("Year", str(latest_year))
                     render_metric_card("Premiums", format_millions(latest_premium))
                     render_metric_card("Claims", format_millions(latest_claims))
-                    render_metric_card("Loss ratio", format_percentage(latest_lr))
+                    render_metric_card(CLAIMS_PREMIUM_RATIO_LABEL_EN, format_percentage(latest_lr))
 
                 if company_reinsurance_summary.get("available"):
                     render_section_header("Reinsurance")
@@ -2103,7 +2130,7 @@ if selected_view == "Technical Signals":
         col_a, col_b = st.columns(2)
 
         with col_a:
-            st.markdown("### Compañías con mayor siniestralidad")
+            st.markdown(f"### Compañías con mayor {CLAIMS_PREMIUM_RATIO_LABEL_ES.lower()}")
 
             company_lr = prepare_premium_claims_summary(filtered_df, ["company_standard"])
             company_lr = company_lr[company_lr["primas"] >= minimum_premium]
@@ -2115,10 +2142,10 @@ if selected_view == "Technical Signals":
                     company_lr,
                     x="company_standard",
                     y="siniestralidad",
-                    title="Top compañías por siniestralidad",
+                    title=f"Top compañías por {CLAIMS_PREMIUM_RATIO_LABEL_ES.lower()}",
                     labels={
                         "company_standard": "Compañía",
-                        "siniestralidad": "Siniestralidad"
+                        "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_ES
                     },
                     hover_data=["primas_mm"]
                 )
@@ -2129,7 +2156,7 @@ if selected_view == "Technical Signals":
                 st.info("No hay compañías que superen el umbral mínimo de primas seleccionado.")
 
         with col_b:
-            st.markdown("### Ramos con mayor siniestralidad")
+            st.markdown(f"### Ramos con mayor {CLAIMS_PREMIUM_RATIO_LABEL_ES.lower()}")
 
             line_lr = prepare_premium_claims_summary(filtered_df, ["line_of_business_standard"])
             line_lr = line_lr[line_lr["primas"] >= minimum_premium]
@@ -2141,10 +2168,10 @@ if selected_view == "Technical Signals":
                     line_lr,
                     x="line_of_business_standard",
                     y="siniestralidad",
-                    title="Top ramos por siniestralidad",
+                    title=f"Top ramos por {CLAIMS_PREMIUM_RATIO_LABEL_ES.lower()}",
                     labels={
                         "line_of_business_standard": "Ramo",
-                        "siniestralidad": "Siniestralidad"
+                        "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_ES
                     },
                     hover_data=["primas_mm"]
                 )
@@ -2743,6 +2770,14 @@ if selected_view == "Data Status":
             "client, market, actuarial, or financial presentations."
         )
 
+        st.warning(
+            "Methodology note: Claims / Premiums shown in the app is an analytical claims/premiums ratio. "
+            "It should not be interpreted as Fasecolda's official technical loss ratio or combined "
+            "ratio unless specifically stated. SOAT should be reviewed carefully because Fasecolda's "
+            "technical views may include methodological components not captured by a simple "
+            "claims/premiums ratio."
+        )
+
         render_section_header("Data Sources", "Core and complementary sources currently available to the app.")
 
         source_summary = (
@@ -2757,7 +2792,7 @@ if selected_view == "Data Status":
         )
 
         source_summary["status"] = "Core regional principal"
-        source_summary["usage"] = "Primas, siniestros, siniestralidad, compañías, ramos, ciudades"
+        source_summary["usage"] = "Primas, siniestros, ratio siniestros / primas, compañías, ramos, ciudades"
 
         # Agregar fuente complementaria de Indicadores de Gestión si está cargada
         if "indicadores_df" in globals() and not indicadores_df.empty:

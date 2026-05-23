@@ -6,6 +6,12 @@ from html import escape
 import pandas as pd
 
 
+DISPLAY_COLUMN_NAMES = {
+    "siniestralidad": "Claims / Premiums",
+    "loss_ratio_change": "Change in Claims / Premiums",
+}
+
+
 def format_millions(value):
     if pd.isna(value):
         return "N/A"
@@ -225,13 +231,13 @@ def build_company_brief(
 
     alerts = []
     if pd.notna(latest_lr) and latest_lr >= 0.7:
-        alerts.append(f"High loss ratio in {latest_year}: {format_percentage(latest_lr)}.")
+        alerts.append(f"High claims-to-premium ratio in {latest_year}: {format_percentage(latest_lr)}.")
     if pd.notna(premium_growth) and premium_growth < -0.05:
         alerts.append(f"Premium contraction in {latest_year}: {format_percentage(premium_growth)}.")
     if not deteriorating_lines.empty:
         top_deteriorating = deteriorating_lines.iloc[0]
         alerts.append(
-            f"Loss ratio deterioration in {top_deteriorating['line_of_business_standard']}: "
+            f"Claims-to-premium ratio deterioration in {top_deteriorating['line_of_business_standard']}: "
             f"{format_percentage(top_deteriorating['loss_ratio_change'])} change vs prior year."
         )
     if reinsurance_summary and reinsurance_summary.get("available") and pd.notna(reinsurance_summary.get("cession_ratio")):
@@ -253,7 +259,7 @@ def build_company_brief(
 
     executive_summary = (
         f"{company} in {country} wrote {format_millions(latest_premium)} in premiums in {latest_year} "
-        f"for {line_scope}, with claims of {format_millions(latest_claims)} and a loss ratio of "
+        f"for {line_scope}, with claims of {format_millions(latest_claims)} and a claims-to-premium ratio of "
         f"{format_percentage(latest_lr)}. Premium growth versus the prior available year was "
         f"{format_percentage(premium_growth)}. Main lines by premium were {top_lines_text}."
     )
@@ -270,7 +276,7 @@ def build_company_brief(
 
     questions = [
         f"What explains {company}'s premium movement in {line_scope} during {years_text}?",
-        "Which portfolios are driving loss ratio pressure, and what underwriting actions are planned?",
+        "Which portfolios are driving claims-to-premium pressure, and what underwriting actions are planned?",
         "Where could reinsurance structure, limits, retentions, or reinstatement terms be reviewed?",
         "Are growth targets aligned with technical pricing and risk selection?",
         "What market intelligence would be most useful before renewal or placement discussions?",
@@ -312,6 +318,7 @@ def _markdown_table(df: pd.DataFrame, columns: list[str], limit: int = 10) -> st
     if df is None or df.empty:
         return "Data not available.\n"
     display = df[columns].head(limit).copy()
+    display = display.rename(columns=DISPLAY_COLUMN_NAMES)
     header = "| " + " | ".join(display.columns.astype(str)) + " |"
     separator = "| " + " | ".join(["---"] * len(display.columns)) + " |"
     rows = []
@@ -353,8 +360,8 @@ def render_company_brief_markdown(
 ## Premium Evolution
 {_markdown_table(company_summary, ["year", "primas", "siniestros", "siniestralidad", "premium_growth"])}
 
-## Claims / Loss Ratio Evolution
-Loss ratio is calculated as claims divided by gross written premium.
+## Claims / Premiums Evolution
+Claims / Premiums is an analytical ratio calculated as claims divided by gross written premium. It is not necessarily Fasecolda's official technical loss ratio, technical siniestralidad, or combined ratio.
 
 ## Market Share
 {_markdown_table(market_share, ["year", "primas", "market_primas", "market_share"])}
@@ -365,7 +372,7 @@ Loss ratio is calculated as claims divided by gross written premium.
 ## Fastest Growing Lines
 {_markdown_table(fastest_lines, ["line_of_business_standard", "year", "primas", "premium_growth"])}
 
-## Lines With Deteriorating Loss Ratio
+## Lines With Deteriorating Claims / Premiums
 {_markdown_table(deteriorating_lines, ["line_of_business_standard", "year", "siniestralidad", "loss_ratio_change"])}
 
 ## Reinsurance Indicators
@@ -400,7 +407,7 @@ def render_one_pager_markdown(brief: dict, company: str, country: str) -> str:
         kpi_text = (
             f"- Premiums: {format_millions(row['primas'])}\n"
             f"- Claims: {format_millions(row['siniestros'])}\n"
-            f"- Loss ratio: {format_percentage(row['siniestralidad'])}\n"
+            f"- Claims / Premiums: {format_percentage(row['siniestralidad'])}\n"
             f"- Premium growth: {format_percentage(row['premium_growth'])}"
         )
 
@@ -551,12 +558,12 @@ def build_technical_signals(
             .iterrows()
         ):
             add_signal(
-                "Highest loss ratio companies",
+                "Highest claims-to-premium companies",
                 row["siniestralidad"],
                 row["year"],
                 row["company_standard"],
                 "All selected lines",
-                "Company loss ratio is among the highest under current filters.",
+                "Company analytical claims-to-premium ratio is among the highest under current filters.",
                 "Fasecolda - Ciudades y Ramos",
             )
 
@@ -605,12 +612,12 @@ def build_technical_signals(
             .iterrows()
         ):
             add_signal(
-                "Lines with increasing loss ratio",
+                "Lines with increasing claims-to-premium ratio",
                 row["loss_ratio_change"],
                 row["year"],
                 "Market",
                 row["line_of_business_standard"],
-                "Loss ratio increased versus prior available year.",
+                "Analytical claims-to-premium ratio increased versus prior available year.",
                 "Fasecolda - Ciudades y Ramos",
             )
 
@@ -661,9 +668,9 @@ def build_technical_signals(
     watchlist = signal_df[
         signal_df["signal_type"].isin(
             [
-                "Highest loss ratio companies",
+                "Highest claims-to-premium companies",
                 "Companies losing market share",
-                "Lines with increasing loss ratio",
+                "Lines with increasing claims-to-premium ratio",
                 "Companies with high cession ratio",
             ]
         )

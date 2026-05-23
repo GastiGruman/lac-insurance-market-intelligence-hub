@@ -22,11 +22,11 @@ The AI context can include:
 - Selected years.
 - Meeting purpose and meeting type.
 - Premium evolution.
-- Claims and loss ratio evolution.
+- Claims and Claims / Premiums ratio evolution.
 - Market share.
 - Main lines of business.
 - Fastest growing lines.
-- Lines with deteriorating loss ratio.
+- Lines with deteriorating Claims / Premiums ratio.
 - Exploratory reinsurance summary when available.
 - Source, period and methodology notes.
 
