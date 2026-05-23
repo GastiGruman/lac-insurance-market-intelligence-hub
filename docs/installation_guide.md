@@ -1,42 +1,57 @@
-# Installation Guide — Colombia Insurance Market Intelligence
+# Installation Guide - Colombia MVP Demo
 
-## Objetivo
+## Purpose
 
-Esta guía explica cómo replicar y ejecutar el MVP en otra computadora.
+This guide explains how to run the Colombia MVP demo locally. The demo branch includes a static DuckDB snapshot for Streamlit Cloud testing.
 
-El proyecto fue construido en Python, usando Streamlit para el dashboard, DuckDB como base local y pandas para procesamiento de datos.
+## Requirements
 
----
+- Python 3.11.
+- Git, if cloning from GitHub.
+- Access to the private repository.
+- No API keys are required for the core dashboard.
 
-## 1. Requisitos previos
+## Local Setup
 
-Antes de ejecutar el proyecto, la computadora debe tener instalado:
+```powershell
+cd "C:\Users\PC\Documents\colombia_insurance_market_dashboard - copia"
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+python -m streamlit run app\streamlit_app.py
+```
 
-- Python 3.11 o superior.
-- Acceso a la carpeta completa del proyecto.
-- Archivos de datos públicos de Fasecolda.
-- Permisos para instalar librerías de Python.
+## Expected Demo Files
 
----
+The demo branch should include:
 
-## 2. Estructura esperada del proyecto
+- `app/streamlit_app.py`
+- `src/`
+- `docs/`
+- `.streamlit/config.toml`
+- `requirements.txt`
+- `runtime.txt`
+- `data/mappings/`
+- `data/database/insurance_market.duckdb`
 
-La carpeta debe mantener esta estructura:
+The demo branch should not include:
 
-```text
-colombia_insurance_market_dashboard/
-│
-├── app/
-│   └── streamlit_app.py
-│
-├── data/
-│   ├── raw/
-│   ├── processed/
-│   └── database/
-│
-├── docs/
-├── notebooks/
-├── outputs/
-├── src/
-├── requirements.txt
-└── README.md
+- `data/raw/`
+- `data/processed/`
+- `outputs/`
+- `.venv/`
+- `.env`
+- `.streamlit/secrets.toml`
+
+## Streamlit Cloud
+
+Use:
+
+- Branch: `demo-streamlit-cloud`
+- Main file path: `app/streamlit_app.py`
+
+After deployment, reboot the app and test filters, Data Status, Reports / Export, and Reinsurance View.
+
+## Current Limitation
+
+This demo uses a static database snapshot. It does not yet download or refresh data automatically from Fasecolda.

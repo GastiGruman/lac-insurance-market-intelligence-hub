@@ -839,6 +839,10 @@ st.sidebar.divider()
 
 render_sidebar_label("Current module")
 st.sidebar.write(f"**{selected_country} country module**")
+st.sidebar.caption("Version: Colombia MVP Demo")
+st.sidebar.caption("Phase: 2 - Data methodology and trust layer")
+st.sidebar.caption("Data update mode: Static demo snapshot")
+st.sidebar.caption("Automatic updates: Not yet enabled")
 st.sidebar.caption("Data model: Regional Market Core")
 st.sidebar.caption("Primary source: Fasecolda - Ciudades y Ramos")
 st.sidebar.caption("Annual views use the latest available monthly cut per year.")
@@ -2611,6 +2615,12 @@ if selected_view == "Data Status":
             "Coverage, traceability, mapping readiness and validation warnings for the selected country module.",
         )
 
+        st.info(
+            "This Streamlit Cloud demo uses a static DuckDB snapshot included in the demo branch. "
+            "It does not yet update automatically from Fasecolda. Automatic ingestion is planned "
+            "for Phase 3."
+        )
+
         status_all_periods_df = load_market_core_all_periods()
         if status_all_periods_df.empty:
             status_country_df = country_df.copy()
@@ -2628,6 +2638,12 @@ if selected_view == "Data Status":
         total_files = status_country_df["source_file"].nunique()
         min_date = status_country_df["period_date"].min()
         max_date = status_country_df["period_date"].max()
+        available_years = sorted(status_country_df["year"].dropna().astype(int).unique())
+        available_years_text = (
+            f"{min(available_years)}-{max(available_years)}"
+            if available_years
+            else "N/A"
+        )
 
         col_a, col_b, col_c, col_d = st.columns(4)
 
@@ -2651,6 +2667,17 @@ if selected_view == "Data Status":
         with col_h:
             render_metric_card("App review", run_time.strftime("%d/%m/%Y %H:%M"), "Local runtime")
 
+        col_i0, col_j0, col_k0, col_l0 = st.columns(4)
+
+        with col_i0:
+            render_metric_card("Available years", available_years_text, "Reporting periods")
+        with col_j0:
+            render_metric_card("Demo snapshot", "Static", "Streamlit Cloud branch")
+        with col_k0:
+            render_metric_card("Primary source", "Ciudades y Ramos", "Fasecolda public data")
+        with col_l0:
+            render_metric_card("Auto-update", "Not enabled", "Planned Phase 3")
+
         st.divider()
 
         st.info(
@@ -2659,6 +2686,12 @@ if selected_view == "Data Status":
             "field is treated as thousands of COP and converted to COP for KPIs, charts, briefs, "
             "exports and technical signals. Data Status tables below show all loaded source records "
             "for traceability."
+        )
+
+        st.warning(
+            "Professional use note: figures are intended for internal market intelligence and broker "
+            "meeting preparation. Validate figures against the source files before using them in formal "
+            "client, market, actuarial, or financial presentations."
         )
 
         render_section_header("Data Sources", "Core and complementary sources currently available to the app.")
@@ -2739,6 +2772,11 @@ if selected_view == "Data Status":
             st.warning(
                 "No mapping available: una o ambas tablas de mapping no están cargadas. "
                 "Ejecuta `python src\\load_mappings_to_duckdb.py`."
+            )
+        else:
+            st.success(
+                "Mapping status: company and line-of-business mapping tables are available. "
+                "They align Fasecolda source names with standard app names."
             )
 
         render_section_header("Metric Availability", "Available metrics by country, record count and period coverage.")
@@ -2835,9 +2873,9 @@ if selected_view == "Data Status":
             st.dataframe(indicadores_flags_status, width="stretch")
 
         st.info(
-            "Esta sección evolucionará hacia un Data Status corporativo con logs de actualización, "
-            "archivos descargados, validaciones automáticas, errores detectados y fecha de última ejecución "
-            "del automated regulatory data pipeline."
+            "Current version: Colombia MVP Demo, Phase 2 - Data methodology and trust layer. "
+            "This version is suitable for limited internal broker testing. It is not yet a corporate-hosted "
+            "production service and does not yet include an automated regulatory data pipeline."
         )
     except Exception as exc:
         render_section_error(exc)
