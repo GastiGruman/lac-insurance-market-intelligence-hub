@@ -142,6 +142,12 @@ Use the app for:
 - Questions for client discussions.
 - Data quality review.
 
+## Company Brief Methodology
+
+The Company Brief is a structured broker-preparation view generated from the app's internal DuckDB data model. It uses public Fasecolda data, mapping tables and calculated app metrics to summarize market position, competitors, portfolio mix, premium evolution, Claims / Premiums movement, technical alerts and meeting questions.
+
+It does not include external intelligence, key people, leadership context or news. Those sources will be handled separately in later AI Brief and News phases. Broker questions and alerts are discussion prompts, not underwriting conclusions.
+
 ## Inappropriate Uses
 
 Do not use the app as:

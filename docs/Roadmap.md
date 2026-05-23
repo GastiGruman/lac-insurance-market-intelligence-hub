@@ -62,7 +62,7 @@ Focus:
 
 ## Phase 4 - Broker-Focused Refinements
 
-Status: planned.
+Status: in progress.
 
 Focus:
 
@@ -73,6 +73,17 @@ Focus:
 - More explicit caveats where needed.
 - Separate official technical indicator views from analytical Claims / Premiums ratios where Fasecolda methodology is available.
 - Show both the app's Claims / Premiums ratio and official technical indicators or combined ratios when source methodology has been confirmed.
+
+### Phase 4A - Advanced Company Brief
+
+Status: implemented in this branch.
+
+Focus:
+
+- Convert Company Brief into a broker-ready executive intelligence page.
+- Add market position, competitors, portfolio mix, growth signals, technical alerts and meeting questions.
+- Keep the brief grounded in structured DuckDB/Fasecolda data.
+- Leave external intelligence, key people and news to later AI Brief / News phases.
 
 ## Phase 5 - Controlled AI Module
 

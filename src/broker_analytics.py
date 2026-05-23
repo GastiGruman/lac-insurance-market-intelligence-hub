@@ -24,6 +24,12 @@ def format_percentage(value):
     return f"{value:.1%}"
 
 
+def safe_divide(numerator, denominator):
+    if pd.isna(numerator) or pd.isna(denominator) or denominator == 0:
+        return pd.NA
+    return numerator / denominator
+
+
 def prepare_premium_claims_summary(data: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
     if data.empty:
         cols = group_cols + ["primas", "siniestros", "siniestralidad"]
@@ -47,6 +53,363 @@ def prepare_premium_claims_summary(data: pd.DataFrame, group_cols: list[str]) ->
     summary["siniestros"] = summary["siniestros"].fillna(0)
     summary["siniestralidad"] = summary["siniestros"] / summary["primas"].replace({0: pd.NA})
     return summary
+
+
+def calculate_company_premium_evolution(company_df: pd.DataFrame) -> pd.DataFrame:
+    summary = prepare_premium_claims_summary(company_df, ["year"])
+    if summary.empty:
+        return summary
+    summary = summary.sort_values("year")
+    summary["premium_growth"] = summary["primas"].pct_change()
+    summary["claims_premiums_change"] = summary["siniestralidad"].diff()
+    return summary
+
+
+def calculate_company_market_position(
+    company: str,
+    company_summary: pd.DataFrame,
+    market_df: pd.DataFrame,
+) -> dict:
+    if company_summary.empty or market_df.empty:
+        return {
+            "available": False,
+            "latest_year": pd.NA,
+            "rank": pd.NA,
+            "company_count": 0,
+            "company_premium": pd.NA,
+            "market_premium": pd.NA,
+            "market_share": pd.NA,
+            "market_claims_premiums": pd.NA,
+            "company_claims_premiums": pd.NA,
+            "top_companies": pd.DataFrame(),
+        }
+
+    latest_year = int(company_summary["year"].max())
+    market_company = prepare_premium_claims_summary(
+        market_df[market_df["year"] == latest_year],
+        ["company_standard"],
+    )
+    if market_company.empty:
+        return {
+            "available": False,
+            "latest_year": latest_year,
+            "rank": pd.NA,
+            "company_count": 0,
+            "company_premium": pd.NA,
+            "market_premium": pd.NA,
+            "market_share": pd.NA,
+            "market_claims_premiums": pd.NA,
+            "company_claims_premiums": pd.NA,
+            "top_companies": pd.DataFrame(),
+        }
+
+    market_company = market_company.sort_values("primas", ascending=False).reset_index(drop=True)
+    market_company["rank"] = market_company.index + 1
+    market_total = market_company["primas"].sum()
+    market_claims = market_company["siniestros"].sum()
+    market_company["market_share"] = market_company["primas"] / market_total if market_total else pd.NA
+    selected_row = market_company[market_company["company_standard"] == company]
+    if selected_row.empty:
+        selected = {}
+    else:
+        selected = selected_row.iloc[0].to_dict()
+
+    top_companies = market_company.head(5).copy()
+    return {
+        "available": bool(selected),
+        "latest_year": latest_year,
+        "rank": selected.get("rank", pd.NA),
+        "company_count": int(market_company["company_standard"].nunique()),
+        "company_premium": selected.get("primas", pd.NA),
+        "market_premium": market_total,
+        "market_share": selected.get("market_share", pd.NA),
+        "market_claims_premiums": safe_divide(market_claims, market_total),
+        "company_claims_premiums": selected.get("siniestralidad", pd.NA),
+        "top_companies": top_companies,
+    }
+
+
+def calculate_company_main_competitors(
+    company: str,
+    market_df: pd.DataFrame,
+    latest_year: int,
+    limit: int = 10,
+) -> pd.DataFrame:
+    if market_df.empty or pd.isna(latest_year):
+        return pd.DataFrame()
+    competitors = prepare_premium_claims_summary(
+        market_df[market_df["year"] == latest_year],
+        ["company_standard"],
+    )
+    if competitors.empty:
+        return competitors
+    market_total = competitors["primas"].sum()
+    selected_premium = competitors.loc[competitors["company_standard"] == company, "primas"].sum()
+    competitors["market_share"] = competitors["primas"] / market_total if market_total else pd.NA
+    competitors["premium_difference_vs_selected"] = competitors["primas"] - selected_premium
+    competitors["is_selected_company"] = competitors["company_standard"] == company
+    return competitors.sort_values("primas", ascending=False).head(limit)
+
+
+def calculate_company_portfolio_mix(
+    company_df: pd.DataFrame,
+    latest_year: int,
+    minimum_premium: float,
+    limit: int = 10,
+) -> pd.DataFrame:
+    if company_df.empty or pd.isna(latest_year):
+        return pd.DataFrame()
+    line_year = prepare_premium_claims_summary(company_df, ["line_of_business_standard", "year"])
+    if line_year.empty:
+        return line_year
+    line_year = line_year.sort_values(["line_of_business_standard", "year"])
+    line_year["premium_growth"] = line_year.groupby("line_of_business_standard")["primas"].pct_change()
+    line_year["claims_premiums_change"] = line_year.groupby("line_of_business_standard")["siniestralidad"].diff()
+    latest = line_year[line_year["year"] == latest_year].copy()
+    latest = latest[latest["primas"] >= minimum_premium]
+    if latest.empty:
+        return latest
+    total = latest["primas"].sum()
+    latest["portfolio_share"] = latest["primas"] / total if total else pd.NA
+    return latest.sort_values("primas", ascending=False).head(limit)
+
+
+def portfolio_interpretation(portfolio_mix: pd.DataFrame) -> str:
+    if portfolio_mix.empty:
+        return "Not enough data available for portfolio interpretation."
+    top_line = portfolio_mix.iloc[0]
+    top_share = top_line.get("portfolio_share", pd.NA)
+    top3_share = portfolio_mix.head(3)["portfolio_share"].sum()
+    if pd.notna(top_share) and top_share >= 0.5:
+        return (
+            f"Concentrated portfolio: {top_line['line_of_business_standard']} represents "
+            f"{format_percentage(top_share)} of selected company premium."
+        )
+    if pd.notna(top3_share) and top3_share >= 0.75:
+        return f"Moderately concentrated portfolio: top three lines represent {format_percentage(top3_share)} of selected premium."
+    return "Diversified portfolio under the selected filters, with no single line dominating premium."
+
+
+def calculate_company_growth_signals(portfolio_mix: pd.DataFrame) -> pd.DataFrame:
+    if portfolio_mix.empty:
+        return pd.DataFrame()
+    signals = portfolio_mix[
+        portfolio_mix["premium_growth"].notna() | portfolio_mix["claims_premiums_change"].notna()
+    ].copy()
+    if signals.empty:
+        return signals
+    signals["growth_signal"] = "Stable / review"
+    signals.loc[signals["premium_growth"] >= 0.2, "growth_signal"] = "Strong premium growth"
+    signals.loc[signals["premium_growth"] <= -0.1, "growth_signal"] = "Premium contraction"
+    signals.loc[
+        (signals["premium_growth"] >= 0.2) & (signals["claims_premiums_change"] > 0.05),
+        "growth_signal",
+    ] = "Growth with worsening Claims / Premiums"
+    return signals.sort_values(["premium_growth", "claims_premiums_change"], ascending=False).head(5)
+
+
+def calculate_company_technical_alerts(
+    company: str,
+    company_summary: pd.DataFrame,
+    market_position: dict,
+    portfolio_mix: pd.DataFrame,
+    reinsurance_summary: dict | None,
+) -> list[dict]:
+    alerts: list[dict] = []
+    if company_summary.empty:
+        return [
+            {
+                "severity": "Medium",
+                "title": "Limited data available",
+                "explanation": "The selected filters do not provide enough company records for a full brief.",
+                "follow_up": "Confirm whether the selected period, line, or city should be broadened before the meeting.",
+            }
+        ]
+
+    latest = company_summary.sort_values("year").iloc[-1]
+    latest_year = int(latest["year"])
+    premium_growth = latest.get("premium_growth", pd.NA)
+    company_ratio = latest.get("siniestralidad", pd.NA)
+    market_ratio = market_position.get("market_claims_premiums", pd.NA)
+
+    if pd.notna(company_ratio) and pd.notna(market_ratio) and company_ratio > market_ratio + 0.10:
+        alerts.append(
+            {
+                "severity": "High" if company_ratio > market_ratio + 0.20 else "Medium",
+                "title": "Claims / Premiums above market",
+                "explanation": (
+                    f"{company} shows Claims / Premiums of {format_percentage(company_ratio)} versus "
+                    f"selected market level of {format_percentage(market_ratio)} in {latest_year}."
+                ),
+                "follow_up": "Ask which lines or reserving/pricing actions explain the gap versus market.",
+            }
+        )
+
+    if pd.notna(premium_growth) and premium_growth >= 0.20:
+        alerts.append(
+            {
+                "severity": "Medium",
+                "title": "Sharp premium growth",
+                "explanation": f"Premium grew {format_percentage(premium_growth)} in the latest available period.",
+                "follow_up": "Review whether growth is concentrated in specific lines and whether reinsurance support should adjust.",
+            }
+        )
+    elif pd.notna(premium_growth) and premium_growth <= -0.10:
+        alerts.append(
+            {
+                "severity": "Medium",
+                "title": "Premium contraction",
+                "explanation": f"Premium declined {format_percentage(premium_growth)} in the latest available period.",
+                "follow_up": "Ask whether contraction is portfolio pruning, market pressure, classification change, or lost business.",
+            }
+        )
+
+    if not portfolio_mix.empty:
+        top_line = portfolio_mix.iloc[0]
+        top_share = top_line.get("portfolio_share", pd.NA)
+        if pd.notna(top_share) and top_share >= 0.45:
+            alerts.append(
+                {
+                    "severity": "Medium",
+                    "title": f"High concentration in {top_line['line_of_business_standard']}",
+                    "explanation": (
+                        f"{top_line['line_of_business_standard']} represents {format_percentage(top_share)} "
+                        "of selected company premium."
+                    ),
+                    "follow_up": "Review whether this line is driving volatility, growth strategy, or reinsurance need.",
+                }
+            )
+
+        worsening = portfolio_mix[
+            (portfolio_mix["claims_premiums_change"].notna())
+            & (portfolio_mix["claims_premiums_change"] > 0.10)
+        ].sort_values("claims_premiums_change", ascending=False)
+        if not worsening.empty:
+            row = worsening.iloc[0]
+            alerts.append(
+                {
+                    "severity": "Medium",
+                    "title": f"Worsening Claims / Premiums in {row['line_of_business_standard']}",
+                    "explanation": (
+                        f"Claims / Premiums increased by {format_percentage(row['claims_premiums_change'])} "
+                        "versus the prior available year."
+                    ),
+                    "follow_up": "Ask whether the movement reflects claims frequency/severity, pricing, mix, or source effects.",
+                }
+            )
+
+    if reinsurance_summary and reinsurance_summary.get("available") and pd.notna(reinsurance_summary.get("cession_ratio")):
+        cession = reinsurance_summary.get("cession_ratio")
+        if cession >= 0.4:
+            alerts.append(
+                {
+                    "severity": "Low",
+                    "title": "High exploratory cession ratio",
+                    "explanation": f"Exploratory cession ratio is {format_percentage(cession)} in the available reinsurance source.",
+                    "follow_up": "Use as a conversation starter; validate Indicadores de Gestion methodology before formal use.",
+                }
+            )
+
+    if not alerts:
+        alerts.append(
+            {
+                "severity": "Low",
+                "title": "No high-priority automatic alert",
+                "explanation": "No threshold-based broker alert was triggered under the selected filters.",
+                "follow_up": "Use market position, competitors, and portfolio mix to guide the meeting discussion.",
+            }
+        )
+    return alerts
+
+
+def calculate_company_reinsurance_signals(
+    reinsurance_summary: dict | None,
+    reinsurance_wide: pd.DataFrame | None = None,
+) -> dict:
+    if not reinsurance_summary or not reinsurance_summary.get("available"):
+        return {
+            "available": False,
+            "summary": reinsurance_summary or {},
+            "line_signals": pd.DataFrame(),
+            "text": "Reinsurance indicators are not available for this selection.",
+        }
+
+    line_signals = pd.DataFrame()
+    if reinsurance_wide is not None and not reinsurance_wide.empty:
+        line_signals = (
+            reinsurance_wide.groupby(["line_of_business_standard"], as_index=False)
+            .agg(
+                gross_written_premium=("gross_written_premium", "sum"),
+                retained_premium=("retained_premium", "sum"),
+                reinsurance_ceded_premium=("reinsurance_ceded_premium", "sum"),
+                paid_claims=("paid_claims", "sum"),
+            )
+        )
+        line_signals["cession_ratio"] = line_signals["reinsurance_ceded_premium"] / line_signals["gross_written_premium"].replace({0: pd.NA})
+        line_signals["retention_ratio"] = line_signals["retained_premium"] / line_signals["gross_written_premium"].replace({0: pd.NA})
+        line_signals = line_signals.sort_values("reinsurance_ceded_premium", ascending=False).head(5)
+
+    text = (
+        f"Exploratory reinsurance indicators show cession ratio of "
+        f"{format_percentage(reinsurance_summary['cession_ratio'])}, retention ratio of "
+        f"{format_percentage(reinsurance_summary['retention_ratio'])}, and ceded premium of "
+        f"{format_millions(reinsurance_summary['reinsurance_ceded_premium'])}. "
+        "Source remains exploratory pending methodology review."
+    )
+    return {
+        "available": True,
+        "summary": reinsurance_summary,
+        "line_signals": line_signals,
+        "text": text,
+    }
+
+
+def generate_broker_meeting_questions(
+    company: str,
+    selected_line: str,
+    company_summary: pd.DataFrame,
+    market_position: dict,
+    portfolio_mix: pd.DataFrame,
+    technical_alerts: list[dict],
+    reinsurance_signals: dict,
+) -> list[str]:
+    line_scope = "the selected portfolio" if selected_line == "TODOS" else selected_line
+    questions = []
+    if not portfolio_mix.empty:
+        top_line = portfolio_mix.iloc[0]["line_of_business_standard"]
+        questions.append(f"What is driving {company}'s premium volume in {top_line}, the largest selected line?")
+    else:
+        questions.append(f"What is driving {company}'s premium movement in {line_scope}?")
+
+    company_ratio = market_position.get("company_claims_premiums", pd.NA)
+    market_ratio = market_position.get("market_claims_premiums", pd.NA)
+    if pd.notna(company_ratio) and pd.notna(market_ratio):
+        questions.append(
+            f"How does {company} interpret Claims / Premiums of {format_percentage(company_ratio)} "
+            f"versus the selected market at {format_percentage(market_ratio)}?"
+        )
+    else:
+        questions.append("Is the current Claims / Premiums trend aligned with pricing and underwriting actions?")
+
+    if not portfolio_mix.empty and pd.notna(portfolio_mix.iloc[0].get("portfolio_share", pd.NA)):
+        top = portfolio_mix.iloc[0]
+        questions.append(
+            f"Does the {format_percentage(top['portfolio_share'])} concentration in {top['line_of_business_standard']} "
+            "reflect strategic focus, market opportunity, or risk appetite?"
+        )
+
+    high_alerts = [alert for alert in technical_alerts if alert.get("severity") in ["High", "Medium"]]
+    if high_alerts:
+        questions.append(high_alerts[0]["follow_up"])
+
+    if reinsurance_signals.get("available"):
+        questions.append("How does the company view reinsurance support for its largest or fastest-moving lines?")
+        questions.append("Are retained exposures expected to change in the next renewal cycle?")
+    else:
+        questions.append("Which lines would benefit most from additional reinsurance benchmarking or capacity discussion?")
+
+    questions.append("What data should be reconciled before using these figures in a formal client or market presentation?")
+    return questions[:8]
 
 
 def _source_period(data: pd.DataFrame) -> dict:
@@ -179,38 +542,39 @@ def build_company_brief(
     market_df: pd.DataFrame,
     reinsurance_summary: dict | None,
     minimum_premium: float,
+    reinsurance_wide: pd.DataFrame | None = None,
 ) -> dict:
     source = _source_period(company_df)
-    company_summary = prepare_premium_claims_summary(company_df, ["year"])
+    company_summary = calculate_company_premium_evolution(company_df)
     market_summary = prepare_premium_claims_summary(market_df, ["year"])
 
     if company_summary.empty:
-        reinsurance_text = "Reinsurance indicators are not available for the selected filters."
-        if reinsurance_summary and reinsurance_summary.get("available"):
-            reinsurance_text = (
-                f"Exploratory reinsurance indicators show cession ratio of "
-                f"{format_percentage(reinsurance_summary['cession_ratio'])}, retention ratio of "
-                f"{format_percentage(reinsurance_summary['retention_ratio'])}, and ceded premium of "
-                f"{format_millions(reinsurance_summary['reinsurance_ceded_premium'])}. "
-                "Source remains exploratory pending methodology review."
-            )
+        reinsurance_signals = calculate_company_reinsurance_signals(reinsurance_summary, reinsurance_wide)
+        alerts = calculate_company_technical_alerts(company, company_summary, {}, pd.DataFrame(), reinsurance_summary)
 
         return {
             "executive_summary": "Data not available for the selected company and filters.",
+            "executive_snapshot": [],
+            "market_position": calculate_company_market_position(company, company_summary, market_df),
+            "competitors": pd.DataFrame(),
             "premium_evolution": pd.DataFrame(),
             "market_share": pd.DataFrame(),
             "main_lines": pd.DataFrame(),
+            "portfolio_mix": pd.DataFrame(),
+            "portfolio_interpretation": "Not enough data available for portfolio interpretation.",
+            "growth_signals": pd.DataFrame(),
             "fastest_growing_lines": pd.DataFrame(),
             "deteriorating_loss_ratio_lines": pd.DataFrame(),
-            "reinsurance_text": reinsurance_text,
-            "alerts": ["Data not available for the selected company and filters."],
+            "reinsurance_signals": reinsurance_signals,
+            "reinsurance_text": reinsurance_signals["text"],
+            "alerts": alerts,
             "questions": ["What additional source should be reviewed before the meeting?"],
             "source": source,
             "markdown": "# Company Brief\n\nData not available.",
+            "company_brief_context": {},
         }
 
     company_summary = company_summary.sort_values("year")
-    company_summary["premium_growth"] = company_summary["primas"].pct_change()
     latest, previous = _latest_and_previous(company_summary)
     latest_year = int(latest["year"])
     latest_premium = latest["primas"]
@@ -225,28 +589,22 @@ def build_company_brief(
     )
     market_share["market_share"] = market_share["primas"] / market_share["market_primas"].replace({0: pd.NA})
 
+    market_position = calculate_company_market_position(company, company_summary, market_df)
+    competitors = calculate_company_main_competitors(company, market_df, latest_year)
+    portfolio_mix = calculate_company_portfolio_mix(company_df, latest_year, minimum_premium)
+    portfolio_text = portfolio_interpretation(portfolio_mix)
+    growth_signals = calculate_company_growth_signals(portfolio_mix)
     main_lines = _main_lines(company_df, latest_year)
     fastest_lines = _fastest_growing_lines(company_df, minimum_premium)
     deteriorating_lines = _deteriorating_loss_ratio_lines(company_df, minimum_premium)
-
-    alerts = []
-    if pd.notna(latest_lr) and latest_lr >= 0.7:
-        alerts.append(f"High claims-to-premium ratio in {latest_year}: {format_percentage(latest_lr)}.")
-    if pd.notna(premium_growth) and premium_growth < -0.05:
-        alerts.append(f"Premium contraction in {latest_year}: {format_percentage(premium_growth)}.")
-    if not deteriorating_lines.empty:
-        top_deteriorating = deteriorating_lines.iloc[0]
-        alerts.append(
-            f"Claims-to-premium ratio deterioration in {top_deteriorating['line_of_business_standard']}: "
-            f"{format_percentage(top_deteriorating['loss_ratio_change'])} change vs prior year."
-        )
-    if reinsurance_summary and reinsurance_summary.get("available") and pd.notna(reinsurance_summary.get("cession_ratio")):
-        if reinsurance_summary["cession_ratio"] >= 0.4:
-            alerts.append(
-                f"High exploratory reinsurance cession ratio: {format_percentage(reinsurance_summary['cession_ratio'])}."
-            )
-    if not alerts:
-        alerts.append("No automatic high-priority alert triggered under current thresholds.")
+    reinsurance_signals = calculate_company_reinsurance_signals(reinsurance_summary, reinsurance_wide)
+    alerts = calculate_company_technical_alerts(
+        company,
+        company_summary,
+        market_position,
+        portfolio_mix,
+        reinsurance_summary,
+    )
 
     line_scope = "all lines" if selected_line == "TODOS" else selected_line
     years_text = f"{min(selected_years)}-{max(selected_years)}" if selected_years else "selected period"
@@ -264,22 +622,48 @@ def build_company_brief(
         f"{format_percentage(premium_growth)}. Main lines by premium were {top_lines_text}."
     )
 
-    reinsurance_text = "Reinsurance indicators are not available for the selected filters."
-    if reinsurance_summary and reinsurance_summary.get("available"):
-        reinsurance_text = (
-            f"Exploratory reinsurance indicators show cession ratio of "
-            f"{format_percentage(reinsurance_summary['cession_ratio'])}, retention ratio of "
-            f"{format_percentage(reinsurance_summary['retention_ratio'])}, and ceded premium of "
-            f"{format_millions(reinsurance_summary['reinsurance_ceded_premium'])}. "
-            "Source remains exploratory pending methodology review."
-        )
+    questions = generate_broker_meeting_questions(
+        company,
+        selected_line,
+        company_summary,
+        market_position,
+        portfolio_mix,
+        alerts,
+        reinsurance_signals,
+    )
 
-    questions = [
-        f"What explains {company}'s premium movement in {line_scope} during {years_text}?",
-        "Which portfolios are driving claims-to-premium pressure, and what underwriting actions are planned?",
-        "Where could reinsurance structure, limits, retentions, or reinstatement terms be reviewed?",
-        "Are growth targets aligned with technical pricing and risk selection?",
-        "What market intelligence would be most useful before renewal or placement discussions?",
+    if pd.notna(market_position.get("rank", pd.NA)):
+        position_text = f"#{int(market_position['rank'])} of {market_position['company_count']} by premium"
+    else:
+        position_text = "Not enough data available"
+    top_share = portfolio_mix.iloc[0]["portfolio_share"] if not portfolio_mix.empty else pd.NA
+    top_line_label = (
+        f"{portfolio_mix.iloc[0]['line_of_business_standard']} ({format_percentage(top_share)})"
+        if not portfolio_mix.empty
+        else "Not enough data available"
+    )
+    market_ratio = market_position.get("market_claims_premiums", pd.NA)
+    ratio_signal = (
+        "Above selected market"
+        if pd.notna(latest_lr) and pd.notna(market_ratio) and latest_lr > market_ratio
+        else "At or below selected market"
+        if pd.notna(latest_lr) and pd.notna(market_ratio)
+        else "Not enough data available"
+    )
+    broker_angle = (
+        questions[0]
+        if questions
+        else "Review premium movement, Claims / Premiums, portfolio mix and reinsurance needs."
+    )
+    executive_snapshot = [
+        {"label": "Selected year", "value": str(latest_year), "detail": "Latest available year in current filters"},
+        {"label": "Premium", "value": format_millions(latest_premium), "detail": "Company premium in selected market"},
+        {"label": "Market position", "value": position_text, "detail": "Rank by premium in selected market"},
+        {"label": "Market share", "value": format_percentage(market_position.get("market_share", pd.NA)), "detail": "Company premium / selected market premium"},
+        {"label": "Portfolio focus", "value": top_line_label, "detail": "Largest selected line by premium"},
+        {"label": "Recent growth", "value": format_percentage(premium_growth), "detail": "Premium growth vs prior available year"},
+        {"label": "Claims / Premiums", "value": format_percentage(latest_lr), "detail": ratio_signal},
+        {"label": "Broker angle", "value": "Review", "detail": broker_angle},
     ]
 
     markdown = render_company_brief_markdown(
@@ -293,31 +677,56 @@ def build_company_brief(
         main_lines=main_lines,
         fastest_lines=fastest_lines,
         deteriorating_lines=deteriorating_lines,
-        reinsurance_text=reinsurance_text,
+        reinsurance_text=reinsurance_signals["text"],
         alerts=alerts,
         questions=questions,
         source=source,
+        market_position=market_position,
+        competitors=competitors,
+        portfolio_mix=portfolio_mix,
+        portfolio_interpretation_text=portfolio_text,
     )
+
+    company_brief_context = {
+        "executive_snapshot": executive_snapshot,
+        "market_position": market_position,
+        "competitors": competitors,
+        "portfolio_mix": portfolio_mix,
+        "technical_alerts": alerts,
+        "reinsurance_signals": reinsurance_signals,
+        "broker_questions": questions,
+    }
 
     return {
         "executive_summary": executive_summary,
+        "executive_snapshot": executive_snapshot,
+        "market_position": market_position,
+        "competitors": competitors,
         "premium_evolution": company_summary,
         "market_share": market_share,
         "main_lines": main_lines,
+        "portfolio_mix": portfolio_mix,
+        "portfolio_interpretation": portfolio_text,
+        "growth_signals": growth_signals,
         "fastest_growing_lines": fastest_lines,
         "deteriorating_loss_ratio_lines": deteriorating_lines,
-        "reinsurance_text": reinsurance_text,
+        "reinsurance_signals": reinsurance_signals,
+        "reinsurance_text": reinsurance_signals["text"],
         "alerts": alerts,
         "questions": questions,
         "source": source,
         "markdown": markdown,
+        "company_brief_context": company_brief_context,
     }
 
 
 def _markdown_table(df: pd.DataFrame, columns: list[str], limit: int = 10) -> str:
     if df is None or df.empty:
         return "Data not available.\n"
-    display = df[columns].head(limit).copy()
+    available_columns = [column for column in columns if column in df.columns]
+    if not available_columns:
+        return "Data not available.\n"
+    display = df[available_columns].head(limit).copy()
     display = display.rename(columns=DISPLAY_COLUMN_NAMES)
     header = "| " + " | ".join(display.columns.astype(str)) + " |"
     separator = "| " + " | ".join(["---"] * len(display.columns)) + " |"
@@ -325,6 +734,21 @@ def _markdown_table(df: pd.DataFrame, columns: list[str], limit: int = 10) -> st
     for _, row in display.iterrows():
         rows.append("| " + " | ".join(str(row[col]) for col in display.columns) + " |")
     return "\n".join([header, separator] + rows)
+
+
+def _alert_markdown(alerts: list[dict]) -> str:
+    if not alerts:
+        return "- No automatic alert triggered."
+    lines = []
+    for alert in alerts:
+        if isinstance(alert, dict):
+            lines.append(
+                f"- [{alert.get('severity', 'Review')}] {alert.get('title', 'Alert')}: "
+                f"{alert.get('explanation', '')} Follow-up: {alert.get('follow_up', '')}"
+            )
+        else:
+            lines.append(f"- {alert}")
+    return "\n".join(lines)
 
 
 def render_company_brief_markdown(
@@ -342,6 +766,10 @@ def render_company_brief_markdown(
     alerts,
     questions,
     source,
+    market_position=None,
+    competitors=None,
+    portfolio_mix=None,
+    portfolio_interpretation_text="",
 ) -> str:
     year_scope = f"{min(selected_years)}-{max(selected_years)}" if selected_years else "selected period"
     line_scope = "All lines" if selected_line == "TODOS" else selected_line
@@ -357,6 +785,14 @@ def render_company_brief_markdown(
 ## Executive Summary
 {executive_summary}
 
+## Market Position
+- Rank: {market_position.get("rank", "N/A") if market_position else "N/A"}
+- Market share: {format_percentage(market_position.get("market_share", pd.NA)) if market_position else "N/A"}
+- Market premium: {format_millions(market_position.get("market_premium", pd.NA)) if market_position else "N/A"}
+
+## Main Competitors
+{_markdown_table(competitors, ["company_standard", "rank", "primas", "market_share", "siniestralidad", "premium_difference_vs_selected"]) if competitors is not None else "Data not available."}
+
 ## Premium Evolution
 {_markdown_table(company_summary, ["year", "primas", "siniestros", "siniestralidad", "premium_growth"])}
 
@@ -367,7 +803,9 @@ Claims / Premiums is an analytical ratio calculated as claims divided by gross w
 {_markdown_table(market_share, ["year", "primas", "market_primas", "market_share"])}
 
 ## Main Lines of Business
-{_markdown_table(main_lines, ["line_of_business_standard", "gross_written_premium"])}
+{_markdown_table(portfolio_mix, ["line_of_business_standard", "primas", "portfolio_share", "siniestralidad", "premium_growth"]) if portfolio_mix is not None else _markdown_table(main_lines, ["line_of_business_standard", "gross_written_premium"])}
+
+Portfolio interpretation: {portfolio_interpretation_text}
 
 ## Fastest Growing Lines
 {_markdown_table(fastest_lines, ["line_of_business_standard", "year", "primas", "premium_growth"])}
@@ -379,7 +817,7 @@ Claims / Premiums is an analytical ratio calculated as claims divided by gross w
 {reinsurance_text}
 
 ## Key Alerts
-{chr(10).join(f"- {alert}" for alert in alerts)}
+{_alert_markdown(alerts)}
 
 ## Suggested Meeting Questions
 {chr(10).join(f"- {question}" for question in questions)}
@@ -423,7 +861,7 @@ def render_one_pager_markdown(brief: dict, company: str, country: str) -> str:
 {brief.get("reinsurance_text", "Data not available.")}
 
 ## Technical Alerts
-{chr(10).join(f"- {alert}" for alert in brief["alerts"])}
+{_alert_markdown(brief["alerts"])}
 
 ## Suggested Discussion Points
 {chr(10).join(f"- {question}" for question in brief["questions"][:5])}

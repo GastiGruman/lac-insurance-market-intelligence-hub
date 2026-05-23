@@ -2,9 +2,9 @@
 
 ## Current Phase
 
-**Phase 3 - Automated regulatory ingestion pipeline**
+**Phase 4A - Advanced broker-focused Company Brief**
 
-The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal broker testing. Phase 3 adds the first manual-run automated Fasecolda ingestion pipeline: source discovery, download manifesting, processing, validation, pipeline status, and safe DuckDB candidate creation.
+The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal broker testing. The current focus is improving the Company Brief as the main broker preparation module while preserving the stable demo database and the manual Phase 3 pipeline.
 
 ## Design Principle
 
@@ -28,7 +28,7 @@ The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal brok
 | Phase 2 | Colombia reliable / trust layer | Completed in this branch | Data dictionary, methodology, validation notes, mapping methodology, and source-to-module traceability added or updated. |
 | Phase 3 | Automatic Fasecolda data ingestion pipeline | In progress in this branch | Manual-run pipeline structure, fallback source registry, metadata, validations, and safe DuckDB candidate strategy. |
 | Phase 3B | Candidate database review and promotion readiness | In progress in this branch | Compares candidate DuckDB against stable demo DB and blocks promotion unless review recommends it. |
-| Phase 4 | Broker-focused refinements | Planned | Improve workflows after feedback from internal users. |
+| Phase 4 | Broker-focused refinements | In progress | Phase 4A improves Company Brief as the main broker preparation module using structured internal data. |
 | Phase 5 | Controlled AI module | Planned | AI outputs must be grounded in structured data and approved sources. |
 | Phase 6 | Company news module | Planned | Source-based news and broker relevance, with provider configuration. |
 
@@ -115,6 +115,7 @@ Add a separate official technical indicator module using Fasecolda - Indicadores
 - Limited internal testing with 2-3 brokers.
 - Feedback on usefulness, terminology, workflow, and trust.
 - Review of source traceability and methodology.
+- Broker review of the advanced Company Brief workflow for meeting preparation.
 
 ## Not Yet Ready For
 
@@ -123,3 +124,18 @@ Add a separate official technical indicator module using Fasecolda - Indicadores
 - Production data refreshes.
 - Unattended automated regulatory pipeline operation.
 - Formal actuarial, legal, accounting, or financial reporting.
+
+## Phase 4A - Advanced Broker-Focused Company Brief
+
+The Company Brief has been improved as the main broker preparation page. It now emphasizes:
+
+- Executive snapshot.
+- Market position and rank.
+- Main competitors.
+- Portfolio mix and concentration.
+- Premium and Claims / Premiums evolution.
+- Broker-oriented technical alerts.
+- Compact exploratory reinsurance signals where available.
+- Suggested meeting questions based on structured app data.
+
+The brief remains based on DuckDB, public Fasecolda data, mappings and calculated app metrics. External intelligence, leadership context and news are reserved for later AI Brief and News phases.

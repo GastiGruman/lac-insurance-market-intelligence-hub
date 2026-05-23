@@ -1431,16 +1431,94 @@ if selected_view == "Company Brief":
                     market_df=market_reference_df,
                     reinsurance_summary=company_reinsurance_summary,
                     minimum_premium=minimum_premium,
+                    reinsurance_wide=company_reinsurance_wide,
                 )
             except Exception as exc:
                 render_section_error(exc)
                 st.stop()
 
+            render_section_header(
+                "Executive Snapshot",
+                "Compact view of market position, portfolio focus, growth, Claims / Premiums and broker angle.",
+            )
+            snapshot_items = brief.get("executive_snapshot", [])
+            if snapshot_items:
+                for start in range(0, len(snapshot_items), 4):
+                    snapshot_cols = st.columns(4)
+                    for col, item in zip(snapshot_cols, snapshot_items[start:start + 4]):
+                        with col:
+                            render_metric_card(
+                                item.get("label", "Metric"),
+                                item.get("value", "N/A"),
+                                item.get("detail", "Not enough data available for this metric."),
+                            )
+            else:
+                st.info("Not enough data available for the executive snapshot.")
+
             col_a, col_b = st.columns([2, 1])
 
             with col_a:
-                render_section_header("Executive Snapshot")
+                render_section_header("Executive Narrative")
                 st.write(brief["executive_summary"])
+
+                render_section_header("Market Position", "Premium ranking, market share and comparison with the selected market.")
+                market_position = brief.get("market_position", {})
+                position_cols = st.columns(4)
+                with position_cols[0]:
+                    rank_value = (
+                        f"#{int(market_position['rank'])}"
+                        if pd.notna(market_position.get("rank", pd.NA))
+                        else "N/A"
+                    )
+                    render_metric_card("Rank", rank_value, "By premium in selected market")
+                with position_cols[1]:
+                    render_metric_card("Market share", format_percentage(market_position.get("market_share", pd.NA)))
+                with position_cols[2]:
+                    render_metric_card("Company premium", format_millions(market_position.get("company_premium", pd.NA)))
+                with position_cols[3]:
+                    render_metric_card("Market premium", format_millions(market_position.get("market_premium", pd.NA)))
+
+                top_companies = market_position.get("top_companies", pd.DataFrame())
+                if isinstance(top_companies, pd.DataFrame) and not top_companies.empty:
+                    top_companies_chart = top_companies.copy()
+                    top_companies_chart["premium_mm"] = top_companies_chart["primas"] / 1_000_000
+                    fig_top_market = px.bar(
+                        top_companies_chart,
+                        x="company_standard",
+                        y="premium_mm",
+                        title=f"Top 5 companies by premium — {market_position.get('latest_year', 'selected year')}",
+                        labels={
+                            "company_standard": "Company",
+                            "premium_mm": "Premiums in COP MM",
+                        },
+                    )
+                    st.plotly_chart(fig_top_market, width="stretch")
+
+                render_section_header("Main Competitors", "Companies with the largest premium in the same selected market context.")
+                competitors_display = brief.get("competitors", pd.DataFrame()).copy()
+                if competitors_display.empty:
+                    st.info("Not enough data available to calculate competitors.")
+                else:
+                    competitors_display["premium"] = competitors_display["primas"].map(format_millions)
+                    competitors_display["market_share_display"] = competitors_display["market_share"].map(format_percentage)
+                    competitors_display["claims_premiums_display"] = competitors_display["siniestralidad"].map(format_percentage)
+                    competitors_display["difference_vs_selected"] = competitors_display["premium_difference_vs_selected"].map(format_millions)
+                    competitors_display["company_label"] = competitors_display.apply(
+                        lambda row: f"{row['company_standard']} (selected)" if row["is_selected_company"] else row["company_standard"],
+                        axis=1,
+                    )
+                    st.dataframe(
+                        competitors_display[
+                            [
+                                "company_label",
+                                "premium",
+                                "market_share_display",
+                                "claims_premiums_display",
+                                "difference_vs_selected",
+                            ]
+                        ],
+                        width="stretch",
+                    )
 
                 render_section_header("Technical Performance", "Premium, claims and claims-to-premium ratio evolution.")
                 premium_evolution = brief["premium_evolution"].copy()
@@ -1465,7 +1543,7 @@ if selected_view == "Company Brief":
                         width="stretch"
                     )
 
-                render_section_header("Market Position", "Company premium relative to the selected market reference.")
+                render_section_header("Market Share Evolution", "Company premium relative to the selected market reference by year.")
                 market_share_display = brief["market_share"].copy()
                 if not market_share_display.empty:
                     market_share_display["company_premium"] = market_share_display["primas"].map(format_millions)
@@ -1478,29 +1556,97 @@ if selected_view == "Company Brief":
                         width="stretch"
                     )
 
-                render_section_header("Portfolio Mix", "Largest lines of business by premium.")
-                main_lines_display = brief["main_lines"].copy()
-                if main_lines_display.empty:
+                render_section_header("Portfolio Mix", "Top lines, portfolio share, Claims / Premiums and growth.")
+                st.caption(brief.get("portfolio_interpretation", "Not enough data available for portfolio interpretation."))
+                portfolio_display = brief.get("portfolio_mix", pd.DataFrame()).copy()
+                if portfolio_display.empty:
                     st.info("Data not available")
                 else:
-                    main_lines_display["gross_written_premium_display"] = main_lines_display["gross_written_premium"].map(format_millions)
+                    portfolio_display["premium_display"] = portfolio_display["primas"].map(format_millions)
+                    portfolio_display["portfolio_share_display"] = portfolio_display["portfolio_share"].map(format_percentage)
+                    portfolio_display["claims_premiums_display"] = portfolio_display["siniestralidad"].map(format_percentage)
+                    portfolio_display["premium_growth_display"] = portfolio_display["premium_growth"].map(format_percentage)
                     st.dataframe(
-                        main_lines_display[
-                            ["line_of_business_standard", "gross_written_premium_display"]
+                        portfolio_display[
+                            [
+                                "line_of_business_standard",
+                                "premium_display",
+                                "portfolio_share_display",
+                                "claims_premiums_display",
+                                "premium_growth_display",
+                            ]
                         ],
                         width="stretch"
                     )
+                    evolution_chart = premium_evolution.copy()
+                    evolution_chart["primas_mm"] = evolution_chart["primas"] / 1_000_000
+                    evolution_chart["siniestros_mm"] = evolution_chart["siniestros"] / 1_000_000
+                    evolution_value_chart = evolution_chart.melt(
+                        id_vars=["year"],
+                        value_vars=["primas_mm", "siniestros_mm"],
+                        var_name="metric",
+                        value_name="value_mm",
+                    )
+                    evolution_value_chart["metric"] = evolution_value_chart["metric"].map(
+                        {"primas_mm": "Premiums", "siniestros_mm": "Claims"}
+                    )
+                    chart_col_1, chart_col_2 = st.columns(2)
+                    with chart_col_1:
+                        fig_values = px.line(
+                            evolution_value_chart,
+                            x="year",
+                            y="value_mm",
+                            color="metric",
+                            markers=True,
+                            title="Premium and claims evolution",
+                            labels={"year": "Year", "value_mm": "COP MM", "metric": "Metric"},
+                        )
+                        fix_year_axis(fig_values, evolution_chart["year"].unique())
+                        st.plotly_chart(fig_values, width="stretch")
+                    with chart_col_2:
+                        fig_ratio = px.line(
+                            evolution_chart,
+                            x="year",
+                            y="siniestralidad",
+                            markers=True,
+                            title="Claims / Premiums evolution",
+                            labels={"year": "Year", "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_EN},
+                        )
+                        fix_year_axis(fig_ratio, evolution_chart["year"].unique())
+                        fig_ratio.update_yaxes(tickformat=".1%")
+                        st.plotly_chart(fig_ratio, width="stretch")
+                    portfolio_chart = portfolio_display.copy()
+                    portfolio_chart["premium_mm"] = portfolio_chart["primas"] / 1_000_000
+                    fig_portfolio_mix = px.bar(
+                        portfolio_chart,
+                        x="line_of_business_standard",
+                        y="premium_mm",
+                        title="Portfolio mix by premium",
+                        labels={
+                            "line_of_business_standard": "Line of business",
+                            "premium_mm": "Premiums in COP MM",
+                        },
+                    )
+                    st.plotly_chart(fig_portfolio_mix, width="stretch")
 
-                render_section_header("Growth Signals", "Fastest growing lines under the current premium threshold.")
-                fastest_display = brief["fastest_growing_lines"].copy()
-                if fastest_display.empty:
+                render_section_header("Growth Signals", "Lines with material growth or changing Claims / Premiums.")
+                growth_display = brief.get("growth_signals", pd.DataFrame()).copy()
+                if growth_display.empty:
                     st.info("Data not available")
                 else:
-                    fastest_display["primas_display"] = fastest_display["primas"].map(format_millions)
-                    fastest_display["premium_growth_display"] = fastest_display["premium_growth"].map(format_percentage)
+                    growth_display["primas_display"] = growth_display["primas"].map(format_millions)
+                    growth_display["premium_growth_display"] = growth_display["premium_growth"].map(format_percentage)
+                    growth_display["claims_premiums_change_display"] = growth_display["claims_premiums_change"].map(format_percentage)
                     st.dataframe(
-                        fastest_display[
-                            ["line_of_business_standard", "year", "primas_display", "premium_growth_display"]
+                        growth_display[
+                            [
+                                "line_of_business_standard",
+                                "year",
+                                "primas_display",
+                                "premium_growth_display",
+                                "claims_premiums_change_display",
+                                "growth_signal",
+                            ]
                         ],
                         width="stretch"
                     )
@@ -1530,12 +1676,48 @@ if selected_view == "Company Brief":
                         width="stretch"
                     )
 
-                render_section_header("Reinsurance Indicators", "Exploratory indicators from Indicadores de Gestión when available.")
+                render_section_header("Reinsurance Signals", "Compact preview from exploratory Indicadores de Gestion where available.")
+                reinsurance_signals = brief.get("reinsurance_signals", {})
                 st.write(brief["reinsurance_text"])
+                re_line_signals = (
+                    reinsurance_signals.get("line_signals", pd.DataFrame())
+                    if isinstance(reinsurance_signals, dict)
+                    else pd.DataFrame()
+                )
+                if isinstance(re_line_signals, pd.DataFrame) and not re_line_signals.empty:
+                    re_line_display = re_line_signals.copy()
+                    re_line_display["ceded_premium"] = re_line_display["reinsurance_ceded_premium"].map(format_millions)
+                    re_line_display["retained_premium"] = re_line_display["retained_premium"].map(format_millions)
+                    re_line_display["cession_ratio_display"] = re_line_display["cession_ratio"].map(format_percentage)
+                    re_line_display["retention_ratio_display"] = re_line_display["retention_ratio"].map(format_percentage)
+                    with st.expander("Line-level reinsurance preview", expanded=False):
+                        st.dataframe(
+                            re_line_display[
+                                [
+                                    "line_of_business_standard",
+                                    "ceded_premium",
+                                    "retained_premium",
+                                    "cession_ratio_display",
+                                    "retention_ratio_display",
+                                ]
+                            ],
+                            width="stretch",
+                        )
 
-                render_section_header("Key Alerts")
-                for alert in brief["alerts"]:
-                    st.write(f"- {alert}")
+                render_section_header("Technical Alerts", "Broker-useful signals, not definitive underwriting conclusions.")
+                alerts = brief.get("alerts", [])
+                if not alerts:
+                    st.info("No technical alerts available for the selected filters.")
+                else:
+                    for alert in alerts:
+                        if isinstance(alert, dict):
+                            st.write(
+                                f"**{alert.get('severity', 'Review')} - {alert.get('title', 'Alert')}**: "
+                                f"{alert.get('explanation', '')}"
+                            )
+                            st.caption(f"Suggested follow-up: {alert.get('follow_up', 'Review with the client.')}")
+                        else:
+                            st.write(f"- {alert}")
 
                 render_section_header("Broker Questions")
                 for question in brief["questions"]:
@@ -1653,7 +1835,9 @@ if selected_view == "Company Brief":
 
             st.warning(
                 "Methodology note: this brief is generated from structured public market data. "
-                "Indicadores de Gestión 2025 remains exploratory and should be validated before client use."
+                "Claims / Premiums is an analytical claims-to-premium ratio, not necessarily Fasecolda's "
+                "official technical loss ratio or combined ratio. Indicadores de Gestion 2025 remains "
+                "exploratory and figures should be validated before formal client or market use."
             )
     except Exception as exc:
         render_section_error(exc)
