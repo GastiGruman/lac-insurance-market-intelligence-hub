@@ -97,7 +97,19 @@ Focus:
 - Preserve the exploratory methodology warning until the source is fully validated for production use.
 - Leave AI-generated interpretation to a later controlled AI phase.
 
-## Phase 5 - Controlled AI Module
+### Phase 4C - Internal-Data AI Brief
+
+Status: implemented in this branch.
+
+Focus:
+
+- Generate a broker-ready AI-style brief from internal structured data.
+- Reuse Company Brief, Reinsurance View, technical signals, market context and methodology limitations.
+- Provide constrained question routing for reinsurance, competitors, portfolio lines, meeting questions and validation notes.
+- Keep the module deterministic and functional without external API keys.
+- Leave external AI, news, key people, ratings and financial statements to later governed phases.
+
+## Phase 5 - Controlled External AI Module
 
 Status: planned.
 

@@ -162,6 +162,21 @@ Important limitations:
 - Current available reinsurance data may be one-period heavy, so year-over-year treaty movement may not always be available.
 - Signals and questions are broker prompts, not underwriting conclusions or placement advice.
 
+## AI Brief Methodology
+
+The AI Brief in Phase 4C is an internal-data, deterministic broker intelligence brief. It does not call an external AI API and does not use internet, news, ratings, financial statements, leadership data or live web search.
+
+The brief consolidates structured context already available in the app:
+
+- Market Overview metrics.
+- Company Brief context.
+- Reinsurance View context.
+- Technical signals.
+- Selected filters.
+- Methodology and data limitations.
+
+The output should be treated as a structured meeting-preparation aid. It can help a broker identify what to review, what to ask, and what to validate, but it is not a formal actuarial, legal, accounting, financial or placement recommendation.
+
 ## Inappropriate Uses
 
 Do not use the app as:

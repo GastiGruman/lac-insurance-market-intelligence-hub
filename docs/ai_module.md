@@ -1,103 +1,83 @@
-# AI Module
+# AI Brief Module
 
-## What It Does
+## Current Status
 
-The AI module adds an optional controlled AI layer for broker meeting preparation.
+Phase 4C implements an internal-data AI Brief. It does not require an external LLM, API key, internet access, news search, or web scraping.
 
-Current sections:
-
-- AI Brief.
-- Ask the Data.
-- AI Meeting Prep.
-
-The AI Brief and AI Meeting Prep use only structured context prepared by the app from DuckDB tables and calculated pandas summaries.
+The current module is deterministic and rule-based. It uses structured data already available in the app to produce a broker-ready intelligence brief for meeting preparation.
 
 ## Data Used
 
-The AI context can include:
+The AI Brief can use:
 
-- Selected country.
-- Selected company.
-- Optional line of business.
-- Selected years.
-- Meeting purpose and meeting type.
-- Premium evolution.
-- Claims and Claims / Premiums ratio evolution.
-- Market share.
-- Main lines of business.
-- Fastest growing lines.
-- Lines with deteriorating Claims / Premiums ratio.
-- Exploratory reinsurance summary when available.
-- Source, period and methodology notes.
+- Selected country, company, line of business and years.
+- Market Overview context from Fasecolda - Ciudades y Ramos.
+- Company Brief context, including market position, competitors, portfolio mix, alerts and broker questions.
+- Reinsurance View context from Fasecolda - Indicadores de Gestion 2025 where mapped.
+- Technical signals generated from internal structured data.
+- Methodology and data-status limitations.
 
-Primary source:
+## What It Produces
 
-- Fasecolda - Ciudades y Ramos.
+The deterministic brief includes:
 
-Complementary exploratory source:
+- Executive summary.
+- Market position.
+- Portfolio and line-of-business focus.
+- Performance and technical signals.
+- Reinsurance discussion angles.
+- Broker talking points.
+- Suggested meeting questions.
+- Methodology and data limitations.
+- Next steps for broker preparation.
 
-- Fasecolda - Indicadores de Gestion 2025.
+It also includes a constrained internal-data question box. The first version routes questions to available internal contexts such as reinsurance, competitors, portfolio lines, meeting questions and validation notes.
 
-## What It Does Not Do
+## Brief Types
 
-The module does not:
+The app supports these use cases:
 
-- Invent data.
-- Run arbitrary SQL.
-- Allow model-generated queries.
-- Scrape news or external websites.
-- Mention executives, private information, ratings or regulatory events unless those are present in approved source data.
-- Provide legal, actuarial, investment or financial advice.
+- Pre-meeting company brief.
+- Reinsurance discussion brief.
+- Portfolio review brief.
+- Market comparison brief.
+- Internal strategy brief.
 
-## Configuration
+The selected type changes the emphasis of the generated brief, but all output remains grounded in internal structured data.
 
-AI features are optional. If no provider is configured, the app shows:
+## External Intelligence Not Yet Connected
 
-`AI features are not configured yet.`
+The module does not currently include:
 
-Supported environment variables:
+- Company news.
+- Ratings or rating actions.
+- Financial statements.
+- Key people or leadership.
+- Live web search.
+- External LLM-generated interpretation.
 
-### OpenAI
-
-- `OPENAI_API_KEY`
-- `OPENAI_MODEL` optional
-
-### Azure OpenAI
-
-- `AZURE_OPENAI_API_KEY`
-- `AZURE_OPENAI_ENDPOINT`
-- `AZURE_OPENAI_DEPLOYMENT`
-- `AZURE_OPENAI_API_VERSION` optional
-
-Do not hardcode API keys in the repository.
-
-## Ask the Data
-
-The first version of Ask the Data uses controlled templates and safe pandas calculations.
-
-Supported examples:
-
-- Companies with highest premium growth.
-- Company versus market comparison.
-- Lines or companies with highest exploratory cession ratio.
-- Suggested meeting questions based on selected filters.
-
-If a question is outside available data, the app returns a data-not-available message.
+These are planned future enhancements subject to source review, security configuration and governance.
 
 ## Guardrails
 
-AI prompts require the model to:
+- Do not invent facts or numbers.
+- Use only internal structured data from DuckDB, mapping tables and app calculations.
+- Clearly distinguish observed data from broker interpretation.
+- Treat Claims / Premiums as an analytical ratio, not official technical siniestralidad or combined ratio.
+- Treat reinsurance indicators as exploratory where source limitations apply.
+- Validate figures before formal client, market, actuarial or financial presentations.
 
-- Use only provided structured context.
-- Mention source and period.
-- Distinguish observed data from broker interpretation.
-- Avoid comparing YTD with full-year periods without warning.
-- Avoid legal or financial advice.
-- Keep outputs concise and broker-focused.
+## Optional Future LLM Configuration
 
-## Limitations
+The repository still contains optional AI provider configuration utilities for future controlled LLM use. No API key is required for Phase 4C.
 
-- Indicadores de Gestion 2025 remains exploratory pending methodology review.
-- Aggregate lines may duplicate individual lines.
-- AI output should be reviewed before client use.
-- The module does not yet include news or external-source retrieval.
+Future provider variables may include:
+
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL`
+- `AZURE_OPENAI_API_KEY`
+- `AZURE_OPENAI_ENDPOINT`
+- `AZURE_OPENAI_DEPLOYMENT`
+- `AZURE_OPENAI_API_VERSION`
+
+Do not hardcode API keys in the repository.

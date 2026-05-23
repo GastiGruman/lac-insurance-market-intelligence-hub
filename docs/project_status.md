@@ -2,9 +2,9 @@
 
 ## Current Phase
 
-**Phase 4B - Advanced broker-focused Reinsurance View**
+**Phase 4C - Internal-data AI Brief**
 
-The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal broker testing. The current focus is improving the Reinsurance View as a treaty-broker module while preserving the stable demo database, the advanced Company Brief, and the manual Phase 3 pipeline.
+The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal broker testing. The current focus is connecting the AI Brief to internal structured app data while preserving the stable demo database, advanced Company Brief, advanced Reinsurance View, and the manual Phase 3 pipeline.
 
 ## Design Principle
 
@@ -28,8 +28,8 @@ The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal brok
 | Phase 2 | Colombia reliable / trust layer | Completed in this branch | Data dictionary, methodology, validation notes, mapping methodology, and source-to-module traceability added or updated. |
 | Phase 3 | Automatic Fasecolda data ingestion pipeline | In progress in this branch | Manual-run pipeline structure, fallback source registry, metadata, validations, and safe DuckDB candidate strategy. |
 | Phase 3B | Candidate database review and promotion readiness | In progress in this branch | Compares candidate DuckDB against stable demo DB and blocks promotion unless review recommends it. |
-| Phase 4 | Broker-focused refinements | In progress | Phase 4A improved Company Brief; Phase 4B improves Reinsurance View as a treaty-broker module using structured internal data. |
-| Phase 5 | Controlled AI module | Planned | AI outputs must be grounded in structured data and approved sources. |
+| Phase 4 | Broker-focused refinements | In progress | Phase 4A improved Company Brief; Phase 4B improved Reinsurance View; Phase 4C connects AI Brief to internal structured data without external API dependency. |
+| Phase 5 | Controlled external AI module | Planned | Future LLM outputs must be grounded in structured data and approved sources. |
 | Phase 6 | Company news module | Planned | Source-based news and broker relevance, with provider configuration. |
 
 ## Current Sources
@@ -116,6 +116,7 @@ Add a separate official technical indicator module using Fasecolda - Indicadores
 - Feedback on usefulness, terminology, workflow, and trust.
 - Review of source traceability and methodology.
 - Broker review of the advanced Company Brief and Reinsurance View workflows for meeting preparation.
+- Broker review of the internal-data AI Brief workflow for meeting preparation.
 
 ## Not Yet Ready For
 
@@ -153,3 +154,17 @@ The Reinsurance View has been improved as a treaty-broker preparation module. It
 - Methodology notes that keep Indicadores de Gestion 2025 exploratory and source-dependent.
 
 The view remains based on structured DuckDB data, public Fasecolda data and mapping tables. It does not use AI interpretation, external news, or private client information.
+
+## Phase 4C - Internal-Data AI Brief
+
+The AI Brief has been connected to internal structured app data. It now generates a deterministic broker-ready brief without requiring an external AI provider.
+
+It uses:
+
+- Selected filters for country, company, line and years.
+- Market Overview context.
+- Company Brief context.
+- Reinsurance View context.
+- Technical signals and methodology limitations.
+
+It does not use internet, company news, ratings, financial statements, key people, leadership data or live LLM interpretation. Those items remain future external-intelligence phases.

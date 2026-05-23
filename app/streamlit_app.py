@@ -26,9 +26,12 @@ from src.broker_analytics import (
     summarize_reinsurance,
 )
 from src.ai_brief import (
+    answer_ai_brief_question,
     answer_ask_data,
+    build_ai_brief_context,
     build_structured_ai_context,
     context_to_json,
+    generate_ai_brief_from_context,
     generate_ai_brief,
     generate_ai_meeting_prep,
 )
@@ -875,7 +878,7 @@ st.sidebar.divider()
 render_sidebar_label("Current module")
 st.sidebar.write(f"**{selected_country} country module**")
 st.sidebar.caption("Version: Colombia MVP Demo")
-st.sidebar.caption("Phase: 4B - Advanced treaty-broker Reinsurance View")
+st.sidebar.caption("Phase: 4C - Internal-data AI Brief")
 st.sidebar.caption("Data update mode: Static demo snapshot plus manual pipeline metadata")
 st.sidebar.caption("Automatic updates: Manual-run pipeline available; scheduling not yet enabled")
 st.sidebar.caption(f"Database mode: {'Candidate local test' if USE_CANDIDATE_DB else 'Stable demo'}")
@@ -1851,23 +1854,23 @@ if selected_view == "AI Brief":
     try:
         indicadores_df = load_indicadores_gestion_2025()
 
-        st.subheader("AI Brief")
-        st.caption(
-            "Optional controlled AI layer. It uses only structured data retrieved from DuckDB "
-            "or calculated by the app."
+        render_section_header(
+            "AI Brief",
+            "Deterministic broker intelligence brief generated from internal structured data.",
+        )
+
+        st.info(
+            "This version uses structured internal data and rule-based generation. "
+            "External AI, web intelligence, company news and key-people search are not connected yet."
         )
 
         ai_config = get_ai_config()
-
         if ai_config.configured:
-            st.success(ai_config.status_message)
-        else:
-            st.info("AI features are not configured yet.")
-            st.write(
-                "Configure one approved provider with environment variables such as "
-                "`OPENAI_API_KEY` or `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, "
-                "and `AZURE_OPENAI_DEPLOYMENT`."
+            st.caption(
+                f"External AI provider detected ({ai_config.status_message}), but Phase 4C does not call external AI APIs."
             )
+        else:
+            st.caption("No AI API key is required for this internal-data brief.")
 
         ai_company_options = sorted(country_df["company_standard"].dropna().unique())
         if selected_company != "TODAS" and selected_company in ai_company_options:
@@ -1881,6 +1884,17 @@ if selected_view == "AI Brief":
         ai_col_a, ai_col_b = st.columns(2)
 
         with ai_col_a:
+            brief_type = st.selectbox(
+                "Brief type",
+                [
+                    "Pre-meeting company brief",
+                    "Reinsurance discussion brief",
+                    "Portfolio review brief",
+                    "Market comparison brief",
+                    "Internal strategy brief",
+                ],
+                key="ai_brief_type",
+            )
             ai_company = st.selectbox(
                 "Company for AI brief",
                 ai_company_options,
@@ -1909,22 +1923,12 @@ if selected_view == "AI Brief":
                 value="Client meeting preparation",
                 key="ai_meeting_purpose",
             )
-
-        ai_company_df = country_df[
-            (country_df["company_standard"] == ai_company) &
-            (country_df["year"].isin(ai_years))
-        ].copy()
-
-        if ai_line != "TODOS":
-            ai_company_df = ai_company_df[
-                ai_company_df["line_of_business_standard"] == ai_line
-            ]
-
-        ai_market_df = country_df[country_df["year"].isin(ai_years)].copy()
-        if ai_line != "TODOS":
-            ai_market_df = ai_market_df[
-                ai_market_df["line_of_business_standard"] == ai_line
-            ]
+            internal_question = st.text_area(
+                "Focused internal-data question",
+                value="What should I ask about reinsurance?",
+                key="ai_internal_question",
+                height=90,
+            )
 
         ai_mapped_company = map_company_using_mapping_table(
             ai_company,
@@ -1941,97 +1945,88 @@ if selected_view == "AI Brief":
             )
 
         try:
-            ai_context = build_structured_ai_context(
-                country=selected_country,
-                company=ai_company,
-                selected_line=ai_line,
+            ai_context = build_ai_brief_context(
+                market_df=country_df,
+                selected_country=selected_country,
+                selected_company=ai_company,
+                selected_lob=ai_line,
                 selected_years=ai_years,
                 meeting_purpose=meeting_purpose,
-                company_df=ai_company_df,
-                market_df=ai_market_df,
+                brief_type=brief_type,
                 indicadores_df=indicadores_df,
                 mapped_company=ai_mapped_company,
                 mapped_line=ai_mapped_line,
                 minimum_premium=minimum_premium,
+                data_status={
+                    "database_mode": "Candidate local test" if USE_CANDIDATE_DB else "Stable demo",
+                    "data_update_mode": "Static demo snapshot plus manual pipeline metadata",
+                    "automatic_updates": "Manual-run pipeline available; scheduling not yet enabled",
+                },
             )
+            deterministic_brief = generate_ai_brief_from_context(ai_context)
         except Exception as exc:
             render_section_error(exc)
             st.stop()
 
-        st.markdown("### Structured data context")
-        with st.expander("View context sent to AI", expanded=False):
+        summary_col_a, summary_col_b, summary_col_c, summary_col_d = st.columns(4)
+        company_context = ai_context.get("company_context", {})
+        market_context = ai_context.get("market_context", {})
+        reinsurance_context = ai_context.get("reinsurance_context", {})
+
+        with summary_col_a:
+            render_metric_card("Brief scope", ai_company, "Selected company")
+        with summary_col_b:
+            render_metric_card("Latest year", str(company_context.get("latest_year") or market_context.get("latest_year") or "N/A"))
+        with summary_col_c:
+            render_metric_card(
+                "Premium",
+                format_millions(company_context.get("premium") if ai_company != "TODAS" else market_context.get("premium")),
+                "Selected scope",
+            )
+        with summary_col_d:
+            render_metric_card(
+                "Reinsurance",
+                "Available" if reinsurance_context.get("available") else "Not available",
+                "Indicadores de Gestion 2025",
+            )
+
+        render_section_header(
+            "Internal-Data Answer",
+            "Constrained response to the focused broker question using only app data.",
+        )
+
+        st.markdown(answer_ai_brief_question(internal_question, ai_context))
+
+        render_section_header(
+            "Broker-Ready AI Brief",
+            "Copy-ready markdown generated from Company Brief, Reinsurance View and market context.",
+        )
+
+        st.markdown(deterministic_brief)
+
+        with st.expander("Copy-ready brief", expanded=False):
+            st.code(deterministic_brief, language="markdown")
+
+        with st.expander("Structured internal context", expanded=False):
             st.code(context_to_json(ai_context), language="json")
 
-        st.markdown("### Generate AI Brief")
-
-        if st.button(
-            "Generate AI brief",
-            disabled=not ai_config.configured,
-            key="generate_ai_brief_button",
-        ):
-            with st.spinner("Generating controlled AI brief..."):
-                ai_result = generate_ai_brief(ai_config, ai_context)
-            if ai_result["ok"]:
-                st.markdown(ai_result["text"])
-            else:
-                st.warning(ai_result["text"])
-                if ai_result.get("error") and ai_result["error"] != "missing_configuration":
-                    st.caption(ai_result["error"])
-
-        st.markdown("### Ask the Data")
-        st.caption(
-            "First version uses controlled templates and safe pandas calculations. "
-            "It does not allow arbitrary SQL or model-generated queries."
+        render_section_header(
+            "External Intelligence Not Yet Connected",
+            "These items are planned for later phases and are not used in this brief.",
         )
 
-        ask_question = st.text_input(
-            "Question",
-            value="Which companies grew the most in transport in 2025?",
-            key="ask_data_question",
+        st.write(
+            "- Key people / leadership: planned for a later external-intelligence phase.\n"
+            "- Company news: planned for the News module phase.\n"
+            "- Ratings / financial statements: future enhancement after source and compliance review.\n"
+            "- Live AI generation: future enhancement subject to secure API configuration."
         )
-
-        if st.button("Ask the data", key="ask_data_button"):
-            ask_answer = answer_ask_data(
-                question=ask_question,
-                market_df=country_df[country_df["year"].isin(ai_years)].copy(),
-                indicadores_df=indicadores_df,
-                country=selected_country,
-                selected_company=ai_company,
-                selected_line=ai_line,
-                selected_years=ai_years,
-                minimum_premium=minimum_premium,
-            )
-            if ask_answer["answered"]:
-                st.markdown(ask_answer["answer"])
-            else:
-                st.warning(ask_answer["answer"])
-
-        st.markdown("### AI Meeting Prep")
-
-        meeting_type = st.selectbox(
-            "Meeting type",
-            ["renewal", "prospect", "market update", "technical discussion"],
-            key="ai_meeting_type",
-        )
-        ai_context["scope"]["meeting_type"] = meeting_type
-
-        if st.button(
-            "Generate AI meeting prep",
-            disabled=not ai_config.configured,
-            key="generate_ai_meeting_prep_button",
-        ):
-            with st.spinner("Generating controlled AI meeting prep..."):
-                prep_result = generate_ai_meeting_prep(ai_config, ai_context)
-            if prep_result["ok"]:
-                st.markdown(prep_result["text"])
-            else:
-                st.warning(prep_result["text"])
-                if prep_result.get("error") and prep_result["error"] != "missing_configuration":
-                    st.caption(prep_result["error"])
 
         st.warning(
-            "AI guardrails: outputs must cite source and period, use only structured context, "
-            "distinguish observed data from interpretation, and avoid legal or financial advice."
+            "Guardrails: this brief uses internal structured app data only. It does not include external "
+            "news, ratings, financial statements, leadership/key people or live web search. Claims / Premiums "
+            "is analytical, not necessarily official technical siniestralidad or combined ratio. Reinsurance "
+            "indicators remain exploratory where source limitations apply."
         )
     except Exception as exc:
         render_section_error(exc)

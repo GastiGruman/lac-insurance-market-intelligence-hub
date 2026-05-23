@@ -10,6 +10,7 @@ from src.ai_prompts import AI_SYSTEM_PROMPT, build_ai_brief_prompt, build_meetin
 from src.ai_utils import AIConfig, call_llm
 from src.broker_analytics import (
     build_company_brief,
+    build_reinsurance_view_context,
     build_reinsurance_wide,
     format_millions,
     format_percentage,
@@ -116,6 +117,474 @@ def build_structured_ai_context(
 
 def context_to_json(context: dict) -> str:
     return json.dumps(context, ensure_ascii=False, indent=2, default=str)
+
+
+def _clean_scalar(value):
+    if value is None or pd.isna(value):
+        return None
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except Exception:
+            return value
+    return value
+
+
+def _safe_records(df: pd.DataFrame, limit: int = 10) -> list[dict]:
+    records = _records(df, limit)
+    return [
+        {key: _clean_scalar(value) for key, value in record.items()}
+        for record in records
+    ]
+
+
+def _latest_record(df: pd.DataFrame) -> dict:
+    if df is None or df.empty or "year" not in df.columns:
+        return {}
+    latest = df.sort_values("year").iloc[-1].to_dict()
+    return {key: _clean_scalar(value) for key, value in latest.items()}
+
+
+def _summarize_market_context(scope_df: pd.DataFrame, selected_years: list[int]) -> dict:
+    summary = prepare_premium_claims_summary(scope_df, ["year"])
+    latest = _latest_record(summary)
+    if summary.empty:
+        return {
+            "available": False,
+            "latest_year": max(selected_years) if selected_years else None,
+            "premium": None,
+            "claims": None,
+            "claims_premiums_ratio": None,
+            "records": int(len(scope_df)) if scope_df is not None else 0,
+        }
+    return {
+        "available": True,
+        "latest_year": latest.get("year"),
+        "premium": latest.get("primas"),
+        "claims": latest.get("siniestros"),
+        "claims_premiums_ratio": latest.get("siniestralidad"),
+        "records": int(len(scope_df)),
+        "annual_summary": _safe_records(summary.sort_values("year"), 20),
+    }
+
+
+def _company_ranking(scope_df: pd.DataFrame, latest_year: int | None, minimum_premium: float) -> list[dict]:
+    if scope_df is None or scope_df.empty or latest_year is None:
+        return []
+    latest_scope = scope_df[scope_df["year"] == latest_year].copy()
+    summary = prepare_premium_claims_summary(latest_scope, ["company_standard"])
+    if summary.empty:
+        return []
+    total = summary["primas"].sum()
+    summary = summary[summary["primas"] >= minimum_premium].copy()
+    summary["market_share"] = summary["primas"] / total if total else pd.NA
+    summary = summary.sort_values("primas", ascending=False).head(10)
+    return _safe_records(summary, 10)
+
+
+def _line_focus(scope_df: pd.DataFrame, latest_year: int | None, minimum_premium: float) -> list[dict]:
+    if scope_df is None or scope_df.empty or latest_year is None:
+        return []
+    latest_scope = scope_df[scope_df["year"] == latest_year].copy()
+    summary = prepare_premium_claims_summary(latest_scope, ["line_of_business_standard"])
+    if summary.empty:
+        return []
+    total = summary["primas"].sum()
+    summary = summary[summary["primas"] >= minimum_premium].copy()
+    summary["portfolio_share"] = summary["primas"] / total if total else pd.NA
+    summary = summary.sort_values("primas", ascending=False).head(10)
+    return _safe_records(summary, 10)
+
+
+def _format_top_line(lines: list[dict]) -> str:
+    if not lines:
+        return "Data not available"
+    top = lines[0]
+    return (
+        f"{top.get('line_of_business_standard', 'Selected line')} "
+        f"({format_percentage(top.get('portfolio_share'))} of premium)"
+    )
+
+
+def _format_top_company(companies: list[dict]) -> str:
+    if not companies:
+        return "Data not available"
+    top = companies[0]
+    return (
+        f"{top.get('company_standard', 'Selected company')} "
+        f"({format_percentage(top.get('market_share'))} market share)"
+    )
+
+
+def build_ai_brief_context(
+    market_df: pd.DataFrame,
+    selected_country: str,
+    selected_company: str,
+    selected_lob: str,
+    selected_years: list[int],
+    meeting_purpose: str,
+    brief_type: str,
+    indicadores_df: pd.DataFrame | None = None,
+    mapped_company: str | None = None,
+    mapped_line: str | None = None,
+    minimum_premium: float = 0,
+    data_status: dict | None = None,
+) -> dict:
+    years = [int(year) for year in selected_years] if selected_years else []
+    scope_df = market_df.copy() if market_df is not None else pd.DataFrame()
+    if years and "year" in scope_df.columns:
+        scope_df = scope_df[scope_df["year"].isin(years)].copy()
+    if selected_lob and selected_lob != "TODOS" and "line_of_business_standard" in scope_df.columns:
+        scope_df = scope_df[scope_df["line_of_business_standard"] == selected_lob].copy()
+
+    company_df = scope_df.copy()
+    if selected_company and selected_company != "TODAS" and "company_standard" in company_df.columns:
+        company_df = company_df[company_df["company_standard"] == selected_company].copy()
+
+    market_context = _summarize_market_context(scope_df, years)
+    company_context = _summarize_market_context(company_df, years)
+    latest_year = company_context.get("latest_year") or market_context.get("latest_year")
+    competitor_context = _company_ranking(scope_df, latest_year, minimum_premium)
+    portfolio_context = _line_focus(company_df if selected_company != "TODAS" else scope_df, latest_year, minimum_premium)
+
+    reinsurance_wide = pd.DataFrame()
+    market_reinsurance_wide = pd.DataFrame()
+    reinsurance_context = {
+        "available": False,
+        "selected_summary": {},
+        "market_benchmark": {},
+        "by_line": [],
+        "evolution": [],
+        "signals": [],
+        "broker_questions": [],
+    }
+    if indicadores_df is not None and not indicadores_df.empty:
+        reinsurance_wide = build_reinsurance_wide(
+            indicadores_df,
+            selected_country,
+            company=mapped_company if selected_company != "TODAS" else None,
+            line=mapped_line if selected_lob != "TODOS" else None,
+        )
+        market_reinsurance_wide = build_reinsurance_wide(
+            indicadores_df,
+            selected_country,
+            line=mapped_line if selected_lob != "TODOS" else None,
+        )
+        re_ctx = build_reinsurance_view_context(
+            selected_wide=reinsurance_wide,
+            market_wide=market_reinsurance_wide,
+            selected_company=selected_company,
+            selected_line=selected_lob,
+            minimum_premium=minimum_premium,
+        )
+        reinsurance_context = {
+            "available": re_ctx.get("available", False),
+            "executive_snapshot": re_ctx.get("executive_snapshot", []),
+            "selected_summary": re_ctx.get("selected_summary", {}),
+            "market_benchmark": re_ctx.get("market_benchmark", {}),
+            "by_line": _safe_records(re_ctx.get("by_line", pd.DataFrame()), 10),
+            "evolution": _safe_records(re_ctx.get("evolution", pd.DataFrame()), 10),
+            "signals": re_ctx.get("signals", []),
+            "broker_questions": re_ctx.get("broker_questions", []),
+        }
+
+    company_brief_context = {}
+    broker_questions = []
+    alerts = []
+    if selected_company != "TODAS":
+        reinsurance_summary = summarize_reinsurance(reinsurance_wide)
+        brief = build_company_brief(
+            country=selected_country,
+            company=selected_company,
+            selected_line=selected_lob,
+            selected_years=years,
+            company_df=company_df,
+            market_df=scope_df,
+            reinsurance_summary=reinsurance_summary,
+            minimum_premium=minimum_premium,
+            reinsurance_wide=reinsurance_wide,
+        )
+        company_brief_context = {
+            "executive_summary": brief.get("executive_summary"),
+            "executive_snapshot": brief.get("executive_snapshot", []),
+            "market_position": brief.get("market_position", {}),
+            "competitors": _safe_records(brief.get("competitors", pd.DataFrame()), 10),
+            "portfolio_mix": _safe_records(brief.get("portfolio_mix", pd.DataFrame()), 10),
+            "portfolio_interpretation": brief.get("portfolio_interpretation"),
+        }
+        broker_questions = brief.get("questions", [])
+        alerts = brief.get("alerts", [])
+    else:
+        broker_questions = [
+            "Which companies should be prioritized for a deeper treaty conversation?",
+            "Which lines show the most material premium and Claims / Premiums movement?",
+            "Where should source data be validated before formal external use?",
+        ]
+
+    technical_signals = alerts + reinsurance_context.get("signals", [])
+
+    return {
+        "selection": {
+            "country": selected_country,
+            "company": selected_company,
+            "line_of_business": "All lines" if selected_lob == "TODOS" else selected_lob,
+            "years": years,
+            "meeting_purpose": meeting_purpose,
+            "brief_type": brief_type,
+        },
+        "market_context": market_context,
+        "company_context": company_context,
+        "portfolio_context": {
+            "top_lines": portfolio_context,
+            "top_line_summary": _format_top_line(portfolio_context),
+        },
+        "competitor_context": {
+            "top_companies": competitor_context,
+            "market_leader_summary": _format_top_company(competitor_context),
+        },
+        "company_brief_context": company_brief_context,
+        "technical_signals": technical_signals,
+        "reinsurance_context": reinsurance_context,
+        "broker_questions": broker_questions,
+        "data_status": data_status or {},
+        "methodology_notes": [
+            "The brief uses internal structured data from the app database and app-calculated summaries.",
+            "Primary source: Fasecolda - Ciudades y Ramos.",
+            "Claims / Premiums is an analytical claims-to-premium ratio, not necessarily official technical siniestralidad or combined ratio.",
+            "Reinsurance indicators use Fasecolda - Indicadores de Gestion 2025 where available and remain exploratory.",
+        ],
+        "limitations": [
+            "No external news, ratings, financial statements, leadership/key people, or live web search are included in this phase.",
+            "No external AI API is required for this deterministic brief.",
+            "Figures should be validated against source files before formal client or market presentations.",
+        ],
+    }
+
+
+def _brief_focus_sentence(brief_type: str) -> str:
+    focus = {
+        "Pre-meeting company brief": "Focus on company position, competitors, portfolio priorities and meeting questions.",
+        "Reinsurance discussion brief": "Focus on cession, retention, ceded premium and treaty discussion angles.",
+        "Portfolio review brief": "Focus on line concentration, growth, Claims / Premiums and technical signals.",
+        "Market comparison brief": "Focus on market position, company ranking and competitor benchmark.",
+        "Internal strategy brief": "Focus on where a treaty broker may add value through analysis, capacity discussion and source validation.",
+    }
+    return focus.get(brief_type, focus["Pre-meeting company brief"])
+
+
+def _markdown_signal_list(signals: list[dict], limit: int = 6) -> str:
+    if not signals:
+        return "- No material structured-data signal was available under the selected filters."
+    lines = []
+    for signal in signals[:limit]:
+        title = signal.get("title") or signal.get("signal_type") or "Signal"
+        severity = signal.get("severity", "Signal")
+        explanation = signal.get("explanation", "Review with available data.")
+        follow_up = signal.get("follow_up", "Validate before formal use.")
+        lines.append(f"- **{severity}: {title}.** {explanation} Broker follow-up: {follow_up}")
+    return "\n".join(lines)
+
+
+def generate_ai_brief_from_context(context: dict) -> str:
+    selection = context.get("selection", {})
+    market = context.get("market_context", {})
+    company = context.get("company_context", {})
+    competitors = context.get("competitor_context", {})
+    portfolio = context.get("portfolio_context", {})
+    reinsurance = context.get("reinsurance_context", {})
+    brief_type = selection.get("brief_type", "Pre-meeting company brief")
+    selected_company = selection.get("company", "TODAS")
+    selected_line = selection.get("line_of_business", "All lines")
+    latest_year = company.get("latest_year") or market.get("latest_year") or "N/A"
+
+    scope_label = (
+        f"{selected_company} / {selected_line}"
+        if selected_company != "TODAS"
+        else f"Selected market / {selected_line}"
+    )
+    premium = company.get("premium") if selected_company != "TODAS" else market.get("premium")
+    claims_ratio = (
+        company.get("claims_premiums_ratio")
+        if selected_company != "TODAS"
+        else market.get("claims_premiums_ratio")
+    )
+    re_summary = reinsurance.get("selected_summary", {})
+    re_text = (
+        f"Ceded premium {format_millions(re_summary.get('reinsurance_ceded_premium'))}, "
+        f"cession ratio {format_percentage(re_summary.get('cession_ratio'))}, "
+        f"retention ratio {format_percentage(re_summary.get('retention_ratio'))}."
+        if reinsurance.get("available")
+        else "Reinsurance indicators are not available for this selection."
+    )
+    questions = context.get("broker_questions", []) + reinsurance.get("broker_questions", [])
+    questions = list(dict.fromkeys([q for q in questions if q]))[:8]
+    if not questions:
+        questions = ["What source data should be validated before the meeting?"]
+
+    lines = [
+        f"# Internal Data AI Brief - {scope_label}",
+        "",
+        f"**Use case:** {brief_type}. {_brief_focus_sentence(brief_type)}",
+        f"**Source period:** latest available selected year {latest_year}.",
+        "",
+        "## 1. Executive Summary",
+        f"- Based on available structured data, the selected scope shows premium of {format_millions(premium)} and Claims / Premiums of {format_percentage(claims_ratio)}.",
+        f"- Market leader context: {competitors.get('market_leader_summary', 'Data not available')}.",
+        f"- Portfolio focus: {portfolio.get('top_line_summary', 'Data not available')}.",
+        f"- Reinsurance angle: {re_text}",
+        "",
+        "## 2. Market Position",
+    ]
+
+    company_brief = context.get("company_brief_context", {})
+    market_position = company_brief.get("market_position", {}) if isinstance(company_brief, dict) else {}
+    if selected_company != "TODAS" and market_position:
+        lines.extend(
+            [
+                f"- Market share: {format_percentage(market_position.get('market_share'))}.",
+                f"- Premium rank: {market_position.get('rank', 'N/A')} of {market_position.get('company_count', 'N/A')} companies in the selected market.",
+                f"- Company Claims / Premiums: {format_percentage(market_position.get('company_claims_premiums'))}; selected market Claims / Premiums: {format_percentage(market_position.get('market_claims_premiums'))}.",
+            ]
+        )
+    else:
+        lines.append("- Company-specific position is not shown because the selected company is TODAS or data is unavailable.")
+
+    lines.extend(
+        [
+            "",
+            "## 3. Portfolio and Line of Business Focus",
+        ]
+    )
+    top_lines = portfolio.get("top_lines", [])
+    if top_lines:
+        for row in top_lines[:5]:
+            lines.append(
+                f"- {row.get('line_of_business_standard')}: premium {format_millions(row.get('primas'))}, "
+                f"portfolio share {format_percentage(row.get('portfolio_share'))}, Claims / Premiums {format_percentage(row.get('siniestralidad'))}."
+            )
+    else:
+        lines.append("- Line-level portfolio data is not available under the selected filters.")
+
+    lines.extend(
+        [
+            "",
+            "## 4. Performance and Technical Signals",
+            _markdown_signal_list(context.get("technical_signals", []), 6),
+            "",
+            "## 5. Reinsurance Discussion Angles",
+        ]
+    )
+    if reinsurance.get("available"):
+        by_line = reinsurance.get("by_line", [])
+        lines.append(f"- Selected reinsurance summary: {re_text}")
+        if by_line:
+            top = by_line[0]
+            lines.append(
+                f"- Main ceded line: {top.get('line_of_business_standard')} with ceded premium "
+                f"{format_millions(top.get('reinsurance_ceded_premium'))} and cession ratio {format_percentage(top.get('cession_ratio'))}."
+            )
+        for signal in reinsurance.get("signals", [])[:3]:
+            lines.append(f"- {signal.get('title', 'Reinsurance signal')}: {signal.get('explanation', '')}")
+    else:
+        lines.append("- Reinsurance indicators are not available or not mapped for the selected filters.")
+
+    lines.extend(
+        [
+            "",
+            "## 6. Broker Talking Points",
+            "- Use observed premium, Claims / Premiums, portfolio concentration and reinsurance behavior as discussion prompts, not final conclusions.",
+            "- Prioritize validation of any figure that will be used in a formal client, market, actuarial or financial presentation.",
+            "- Separate observed data from interpretation when discussing technical movement.",
+            "",
+            "## 7. Suggested Meeting Questions",
+        ]
+    )
+    lines.extend([f"- {question}" for question in questions])
+
+    lines.extend(
+        [
+            "",
+            "## 8. Methodology and Data Limitations",
+        ]
+    )
+    lines.extend([f"- {note}" for note in context.get("methodology_notes", [])])
+    lines.extend([f"- {limitation}" for limitation in context.get("limitations", [])])
+    lines.extend(
+        [
+            "",
+            "## 9. Next Steps for Broker Preparation",
+            "- Validate key figures against source files if the output will be used formally.",
+            "- Review whether selected line and company mappings match the intended business entity and portfolio.",
+            "- Identify which observations require client confirmation versus market-source validation.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def answer_ai_brief_question(question: str, context: dict) -> str:
+    question_clean = str(question or "").strip()
+    if not question_clean:
+        return "Enter a focused internal-data question or use the full brief below."
+
+    q_norm = normalize_text(question_clean)
+    reinsurance = context.get("reinsurance_context", {})
+    competitors = context.get("competitor_context", {})
+    portfolio = context.get("portfolio_context", {})
+    questions = context.get("broker_questions", []) + reinsurance.get("broker_questions", [])
+
+    if any(token in q_norm for token in ["REINSURANCE", "REASEGURO", "CESSION", "CESION", "RETENTION", "RETENCION", "CEDIDO"]):
+        if not reinsurance.get("available"):
+            return "Reinsurance indicators are not available for this selection. Review the full Reinsurance View or mapping coverage before the meeting."
+        signals = reinsurance.get("signals", [])
+        answer = ["### Reinsurance discussion angles"]
+        summary = reinsurance.get("selected_summary", {})
+        answer.append(
+            f"- Ceded premium: {format_millions(summary.get('reinsurance_ceded_premium'))}; "
+            f"cession ratio: {format_percentage(summary.get('cession_ratio'))}; "
+            f"retention ratio: {format_percentage(summary.get('retention_ratio'))}."
+        )
+        answer.append(_markdown_signal_list(signals, 4))
+        return "\n".join(answer)
+
+    if any(token in q_norm for token in ["COMPETITOR", "COMPETIDOR", "RANK", "POSITION", "POSICION"]):
+        top = competitors.get("top_companies", [])
+        if not top:
+            return "Competitor context is not available under the selected filters."
+        lines = ["### Main competitors / market leaders"]
+        for row in top[:8]:
+            lines.append(
+                f"- {row.get('company_standard')}: premium {format_millions(row.get('primas'))}, "
+                f"market share {format_percentage(row.get('market_share'))}, Claims / Premiums {format_percentage(row.get('siniestralidad'))}."
+            )
+        return "\n".join(lines)
+
+    if any(token in q_norm for token in ["SOAT", "LINE", "LOB", "RAMO", "PORTFOLIO", "CARTERA"]):
+        top_lines = portfolio.get("top_lines", [])
+        if not top_lines:
+            return "Line-of-business context is not available under the selected filters."
+        lines = ["### Portfolio / line-of-business focus"]
+        for row in top_lines[:6]:
+            lines.append(
+                f"- {row.get('line_of_business_standard')}: premium {format_millions(row.get('primas'))}, "
+                f"share {format_percentage(row.get('portfolio_share'))}, Claims / Premiums {format_percentage(row.get('siniestralidad'))}."
+            )
+        if "SOAT" in q_norm:
+            lines.append("- SOAT caution: compare carefully with official technical views because methodology may differ from the app's analytical Claims / Premiums ratio.")
+        return "\n".join(lines)
+
+    if any(token in q_norm for token in ["QUESTION", "PREGUNTA", "ASK", "MEETING", "REUNION"]):
+        if not questions:
+            return "No specific questions were generated for this selection. Validate source coverage and refine filters."
+        return "### Suggested meeting questions\n" + "\n".join(f"- {question}" for question in list(dict.fromkeys(questions))[:8])
+
+    if any(token in q_norm for token in ["VALIDATE", "VALIDAR", "LIMITATION", "LIMITACION", "CAVEAT", "CAUTION"]):
+        notes = context.get("methodology_notes", []) + context.get("limitations", [])
+        return "### Methodology and validation notes\n" + "\n".join(f"- {note}" for note in notes)
+
+    return (
+        "This controlled version can answer questions about reinsurance, competitors, portfolio/lines, "
+        "meeting questions and validation notes. The full deterministic AI Brief below is generated from internal structured data."
+    )
 
 
 def generate_ai_brief(config: AIConfig, context: dict) -> dict:
