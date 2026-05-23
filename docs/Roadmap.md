@@ -27,7 +27,7 @@ Focus:
 
 ## Phase 3 - Automatic Fasecolda Data Ingestion Pipeline
 
-Status: planned.
+Status: in progress in this branch.
 
 Focus:
 
@@ -37,6 +37,16 @@ Focus:
 - Update DuckDB safely.
 - Produce logs and validation reports.
 - Prevent bad loads from replacing trusted data.
+
+Initial implementation:
+
+- Official Fasecolda landing pages configured.
+- Manual source registry fallback.
+- Download manifest.
+- Normalized processed outputs.
+- Mapping integration and unmapped review files.
+- Pipeline validation reports.
+- Candidate DuckDB strategy with explicit promotion flag.
 
 ## Phase 4 - Broker-Focused Refinements
 

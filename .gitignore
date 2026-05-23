@@ -23,9 +23,17 @@ Data/processed/
 # Allow only the demo DuckDB database for Streamlit Cloud
 data/database/*
 !data/database/insurance_market.duckdb
+data/database/backups/
+data/database/*candidate*.duckdb
+data/database/*candidate*.duckdb.wal
+data/database/*candidate*.duckdb.tmp
 
 Data/database/*
 !Data/database/insurance_market.duckdb
+Data/database/backups/
+Data/database/*candidate*.duckdb
+Data/database/*candidate*.duckdb.wal
+Data/database/*candidate*.duckdb.tmp
 
 # Ignore DuckDB files by default
 *.duckdb
@@ -40,6 +48,16 @@ Data/database/*
 # Generated outputs
 outputs/
 Outputs/
+
+# Generated pipeline metadata
+data/metadata/*.csv
+data/metadata/*.json
+data/metadata/*.md
+!data/metadata/README.md
+Data/metadata/*.csv
+Data/metadata/*.json
+Data/metadata/*.md
+!Data/metadata/README.md
 
 # Environment variables
 .env

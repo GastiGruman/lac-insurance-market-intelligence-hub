@@ -1,5 +1,6 @@
 import streamlit as st
 import duckdb
+import json
 import pandas as pd
 import plotly.express as px
 from pathlib import Path
@@ -66,6 +67,7 @@ DB_PATH = Path("data/database/insurance_market.duckdb")
 VALIDATION_REPORT_PATH = Path("outputs/market_core_validation_report.csv")
 INDICADORES_VALIDATION_REPORT_PATH = Path("outputs/indicadores_gestion_2025_validation_report.csv")
 INDICADORES_VALIDATION_FLAGS_PATH = Path("outputs/indicadores_gestion_2025_flags.csv")
+PIPELINE_STATUS_PATH = Path("data/metadata/latest_pipeline_status.json")
 CORE_MARKET_SOURCE = "FASECOLDA - CIUDADES Y RAMOS"
 CORE_SOURCE_VALUE_MULTIPLIER = 1_000
 DEBUG_MODE = False
@@ -197,6 +199,16 @@ def load_company_mapping():
             conn.close()
     except Exception:
         return pd.DataFrame()
+
+
+@st.cache_data
+def load_pipeline_status():
+    if not PIPELINE_STATUS_PATH.exists():
+        return {}
+    try:
+        return json.loads(PIPELINE_STATUS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
 
 
 # ============================================================
@@ -840,9 +852,9 @@ st.sidebar.divider()
 render_sidebar_label("Current module")
 st.sidebar.write(f"**{selected_country} country module**")
 st.sidebar.caption("Version: Colombia MVP Demo")
-st.sidebar.caption("Phase: 2 - Data methodology and trust layer")
-st.sidebar.caption("Data update mode: Static demo snapshot")
-st.sidebar.caption("Automatic updates: Not yet enabled")
+st.sidebar.caption("Phase: 3 - Automated regulatory ingestion pipeline")
+st.sidebar.caption("Data update mode: Static demo snapshot plus manual pipeline metadata")
+st.sidebar.caption("Automatic updates: Manual-run pipeline available; scheduling not yet enabled")
 st.sidebar.caption("Data model: Regional Market Core")
 st.sidebar.caption("Primary source: Fasecolda - Ciudades y Ramos")
 st.sidebar.caption("Annual views use the latest available monthly cut per year.")
@@ -2192,6 +2204,7 @@ if selected_view == "Reinsurance View":
         indicadores_df = load_indicadores_gestion_2025()
         indicadores_validation_df = load_indicadores_gestion_validation()
         indicadores_validation_flags_df = load_indicadores_gestion_validation_flags()
+        pipeline_status = load_pipeline_status()
 
         st.subheader("Reinsurance View")
         st.caption(
@@ -2617,8 +2630,8 @@ if selected_view == "Data Status":
 
         st.info(
             "This Streamlit Cloud demo uses a static DuckDB snapshot included in the demo branch. "
-            "It does not yet update automatically from Fasecolda. Automatic ingestion is planned "
-            "for Phase 3."
+            "Phase 3 adds a manual-run Fasecolda ingestion pipeline, but the app does not execute "
+            "that pipeline automatically on launch. Scheduled automation is a future deployment step."
         )
 
         status_all_periods_df = load_market_core_all_periods()
@@ -2676,7 +2689,43 @@ if selected_view == "Data Status":
         with col_k0:
             render_metric_card("Primary source", "Ciudades y Ramos", "Fasecolda public data")
         with col_l0:
-            render_metric_card("Auto-update", "Not enabled", "Planned Phase 3")
+            render_metric_card("Auto-update", "Manual only", "Phase 3 pipeline")
+
+        st.divider()
+
+        render_section_header(
+            "Regulatory Data Pipeline",
+            "Latest manual-run ingestion status, if pipeline metadata has been generated.",
+        )
+
+        if pipeline_status:
+            pipe_col_a, pipe_col_b, pipe_col_c, pipe_col_d = st.columns(4)
+            with pipe_col_a:
+                render_metric_card("Last pipeline run", pipeline_status.get("updated_at", "N/A"), "UTC timestamp")
+            with pipe_col_b:
+                render_metric_card("Mode", pipeline_status.get("mode", "N/A"), "Last executed step")
+            with pipe_col_c:
+                render_metric_card("Validation", pipeline_status.get("validation_status", "N/A"), "PASS / WARNING / ERROR")
+            with pipe_col_d:
+                render_metric_card("Database", pipeline_status.get("database_status", "N/A"), "Current DB state")
+
+            pipe_col_e, pipe_col_f, pipe_col_g, pipe_col_h = st.columns(4)
+            with pipe_col_e:
+                render_metric_card("Discovery", pipeline_status.get("discovery_status", "N/A"), "Source scan status")
+            with pipe_col_f:
+                render_metric_card("Downloaded", str(pipeline_status.get("files_downloaded", "N/A")), "New source files")
+            with pipe_col_g:
+                render_metric_card("Processed rows", f"{pipeline_status.get('files_processed', 'N/A')}", "Normalized records")
+            with pipe_col_h:
+                render_metric_card("Automation", pipeline_status.get("automation_mode", "Manual run only"), "Scheduling status")
+
+            st.caption(pipeline_status.get("message", "Pipeline status metadata loaded."))
+        else:
+            st.info(
+                "No Phase 3 pipeline metadata has been generated yet. The pipeline can be run manually "
+                "from CMD with `python -m src.pipeline.run_colombia_pipeline --mode discover` or "
+                "`python -m src.pipeline.run_colombia_pipeline --mode validate`."
+            )
 
         st.divider()
 
@@ -2873,9 +2922,10 @@ if selected_view == "Data Status":
             st.dataframe(indicadores_flags_status, width="stretch")
 
         st.info(
-            "Current version: Colombia MVP Demo, Phase 2 - Data methodology and trust layer. "
+            "Current version: Colombia MVP Demo, Phase 3 - automated regulatory ingestion pipeline. "
             "This version is suitable for limited internal broker testing. It is not yet a corporate-hosted "
-            "production service and does not yet include an automated regulatory data pipeline."
+            "production service. The ingestion pipeline is manual-run only until a scheduling environment "
+            "is approved."
         )
     except Exception as exc:
         render_section_error(exc)

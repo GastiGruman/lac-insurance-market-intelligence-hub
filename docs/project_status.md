@@ -2,9 +2,9 @@
 
 ## Current Phase
 
-**Phase 2 - Colombia reliable / trust layer**
+**Phase 3 - Automated regulatory ingestion pipeline**
 
-The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal broker testing. The current focus is methodology, data dictionary, source traceability, validation transparency, and safe interpretation.
+The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal broker testing. Phase 3 adds the first manual-run automated Fasecolda ingestion pipeline: source discovery, download manifesting, processing, validation, pipeline status, and safe DuckDB candidate creation.
 
 ## Design Principle
 
@@ -16,8 +16,8 @@ The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal brok
 - Database: DuckDB.
 - Branch: `demo-streamlit-cloud`.
 - Main file: `app/streamlit_app.py`.
-- Data update mode: static demo snapshot.
-- Automatic updates: not yet enabled.
+- Data update mode: static demo snapshot with manual pipeline metadata.
+- Automatic updates: manual-run pipeline available; scheduled automation not yet enabled.
 - Corporate hosting: not yet implemented.
 
 ## Phase Status
@@ -26,7 +26,7 @@ The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal brok
 |---|---|---|---|
 | Phase 1 | Colombia MVP stability | Completed | Streamlit Cloud demo stabilized with defensive filters, lazy navigation, and friendly warnings. |
 | Phase 2 | Colombia reliable / trust layer | Completed in this branch | Data dictionary, methodology, validation notes, mapping methodology, and source-to-module traceability added or updated. |
-| Phase 3 | Automatic Fasecolda data ingestion pipeline | Planned | Download, process, validate, and refresh data automatically. |
+| Phase 3 | Automatic Fasecolda data ingestion pipeline | In progress in this branch | Manual-run pipeline structure, fallback source registry, metadata, validations, and safe DuckDB candidate strategy. |
 | Phase 4 | Broker-focused refinements | Planned | Improve workflows after feedback from internal users. |
 | Phase 5 | Controlled AI module | Planned | AI outputs must be grounded in structured data and approved sources. |
 | Phase 6 | Company news module | Planned | Source-based news and broker relevance, with provider configuration. |
@@ -93,7 +93,7 @@ Warnings should be interpreted as review signals, not automatic rejection of the
 ## Current Limitations
 
 - Static DuckDB snapshot included for Streamlit Cloud demo.
-- No automatic Fasecolda refresh yet.
+- No scheduled Fasecolda refresh yet; Phase 3 pipeline is manual-run.
 - Not yet corporate-hosted.
 - Not yet reviewed as a production data product by IT/Data/Compliance.
 - AI and news providers are not part of Phase 2.
@@ -110,5 +110,5 @@ Warnings should be interpreted as review signals, not automatic rejection of the
 - Broad internal rollout.
 - External client use without review.
 - Production data refreshes.
-- Automated regulatory pipeline operation.
+- Unattended automated regulatory pipeline operation.
 - Formal actuarial, legal, accounting, or financial reporting.
