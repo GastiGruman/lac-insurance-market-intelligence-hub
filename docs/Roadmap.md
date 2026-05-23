@@ -48,6 +48,18 @@ Initial implementation:
 - Pipeline validation reports.
 - Candidate DuckDB strategy with explicit promotion flag.
 
+### Phase 3B - Candidate Database Review
+
+Status: in progress in this branch.
+
+Focus:
+
+- Compare current and candidate DuckDB files.
+- Generate local reconciliation outputs.
+- Test app compatibility against candidate mode.
+- Document promotion recommendation.
+- Block promotion if the candidate only adds audit tables or does not materially refresh app-facing tables.
+
 ## Phase 4 - Broker-Focused Refinements
 
 Status: planned.

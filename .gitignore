@@ -53,10 +53,12 @@ Outputs/
 data/metadata/*.csv
 data/metadata/*.json
 data/metadata/*.md
+data/metadata/**
 !data/metadata/README.md
 Data/metadata/*.csv
 Data/metadata/*.json
 Data/metadata/*.md
+Data/metadata/**
 !Data/metadata/README.md
 
 # Environment variables

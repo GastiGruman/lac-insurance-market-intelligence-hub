@@ -1,6 +1,7 @@
 import streamlit as st
 import duckdb
 import json
+import os
 import pandas as pd
 import plotly.express as px
 from pathlib import Path
@@ -63,7 +64,12 @@ configure_plotly_theme()
 
 APP_NAME = "LAC Insurance Market Intelligence Hub"
 COUNTRY_MODULE = "Colombia country module"
-DB_PATH = Path("data/database/insurance_market.duckdb")
+USE_CANDIDATE_DB = os.getenv("USE_CANDIDATE_DB", "false").strip().lower() in {"1", "true", "yes", "y"}
+DB_PATH = (
+    Path("data/database/insurance_market_candidate.duckdb")
+    if USE_CANDIDATE_DB
+    else Path("data/database/insurance_market.duckdb")
+)
 VALIDATION_REPORT_PATH = Path("outputs/market_core_validation_report.csv")
 INDICADORES_VALIDATION_REPORT_PATH = Path("outputs/indicadores_gestion_2025_validation_report.csv")
 INDICADORES_VALIDATION_FLAGS_PATH = Path("outputs/indicadores_gestion_2025_flags.csv")
@@ -871,6 +877,7 @@ st.sidebar.caption("Version: Colombia MVP Demo")
 st.sidebar.caption("Phase: 3 - Automated regulatory ingestion pipeline")
 st.sidebar.caption("Data update mode: Static demo snapshot plus manual pipeline metadata")
 st.sidebar.caption("Automatic updates: Manual-run pipeline available; scheduling not yet enabled")
+st.sidebar.caption(f"Database mode: {'Candidate local test' if USE_CANDIDATE_DB else 'Stable demo'}")
 st.sidebar.caption("Data model: Regional Market Core")
 st.sidebar.caption("Primary source: Fasecolda - Ciudades y Ramos")
 st.sidebar.caption("Annual views use the latest available monthly cut per year.")

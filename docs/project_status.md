@@ -27,6 +27,7 @@ The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal brok
 | Phase 1 | Colombia MVP stability | Completed | Streamlit Cloud demo stabilized with defensive filters, lazy navigation, and friendly warnings. |
 | Phase 2 | Colombia reliable / trust layer | Completed in this branch | Data dictionary, methodology, validation notes, mapping methodology, and source-to-module traceability added or updated. |
 | Phase 3 | Automatic Fasecolda data ingestion pipeline | In progress in this branch | Manual-run pipeline structure, fallback source registry, metadata, validations, and safe DuckDB candidate strategy. |
+| Phase 3B | Candidate database review and promotion readiness | In progress in this branch | Compares candidate DuckDB against stable demo DB and blocks promotion unless review recommends it. |
 | Phase 4 | Broker-focused refinements | Planned | Improve workflows after feedback from internal users. |
 | Phase 5 | Controlled AI module | Planned | AI outputs must be grounded in structured data and approved sources. |
 | Phase 6 | Company news module | Planned | Source-based news and broker relevance, with provider configuration. |
@@ -94,6 +95,7 @@ Warnings should be interpreted as review signals, not automatic rejection of the
 
 - Static DuckDB snapshot included for Streamlit Cloud demo.
 - No scheduled Fasecolda refresh yet; Phase 3 pipeline is manual-run.
+- Candidate DuckDB promotion is controlled by a review workflow and explicit approval.
 - Not yet corporate-hosted.
 - Not yet reviewed as a production data product by IT/Data/Compliance.
 - AI and news providers are not part of Phase 2.

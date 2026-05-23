@@ -104,6 +104,46 @@ The safe strategy is:
 
 Candidate databases and backups are excluded from Git.
 
+## Candidate Database Review
+
+Phase 3B adds a controlled review step before any database promotion:
+
+```powershell
+python -m src.pipeline.compare_candidate_database
+```
+
+The comparison writes local reconciliation files under `data/metadata/db_comparison/` and a review note at `docs/candidate_database_review.md`.
+
+The review checks:
+
+- Required app tables and columns.
+- Row counts and schema compatibility.
+- Year and period coverage.
+- Premium, claims, and Claims / Premiums totals by year.
+- Source, company, and line-of-business comparisons.
+- SOAT, BOLIVAR, and BOLIVAR + INCENDIO Y LUCRO CESANTE slices.
+- Reinsurance indicator availability.
+
+Promotion should not proceed unless the review recommendation is `Promote now` and the user explicitly approves.
+
+## Local Candidate App Testing
+
+The app uses the stable demo database by default. To test the candidate locally without replacing the current database:
+
+```powershell
+$env:USE_CANDIDATE_DB="true"
+python -m streamlit run app\streamlit_app.py
+```
+
+To return to the stable database:
+
+```powershell
+Remove-Item Env:\USE_CANDIDATE_DB
+python -m streamlit run app\streamlit_app.py
+```
+
+Streamlit Cloud remains on the stable database by default because `USE_CANDIDATE_DB` is not set.
+
 ## How To Run
 
 From the project root:

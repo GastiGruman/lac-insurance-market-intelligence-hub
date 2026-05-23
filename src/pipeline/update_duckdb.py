@@ -5,6 +5,7 @@ import duckdb
 import pandas as pd
 
 from .config import PipelineConfig, ensure_pipeline_dirs
+from .compare_candidate_database import compare_databases
 from .pipeline_logger import append_event, write_status
 from .validate_pipeline_outputs import validate_pipeline_outputs
 
@@ -49,6 +50,30 @@ def build_candidate_database(config: PipelineConfig) -> bool:
 
 
 def promote_candidate_database(config: PipelineConfig) -> bool:
+    comparison = compare_databases()
+    if comparison.get("recommendation") != "Promote now":
+        append_event(
+            config,
+            "promote_db",
+            "ERROR",
+            f"Candidate comparison recommendation is {comparison.get('recommendation')}; current DuckDB was not replaced.",
+        )
+        write_status(
+            config,
+            {
+                "mode": "update-db",
+                "discovery_status": "available" if config.discovered_sources_path.exists() else "not_run",
+                "files_downloaded": 0,
+                "files_processed": 0,
+                "validation_status": "WARNING",
+                "latest_available_period": "N/A",
+                "database_status": "promotion_blocked",
+                "automation_mode": "Manual run only",
+                "message": "Candidate comparison did not recommend promotion. Existing demo database remains unchanged.",
+            },
+        )
+        return False
+
     report, has_errors = validate_pipeline_outputs(config, mode="update-db")
     if has_errors:
         append_event(config, "promote_db", "ERROR", "Validation errors found; current DuckDB was not replaced.")
