@@ -16,6 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.broker_analytics import (
     annual_summary_csv,
     build_company_brief,
+    build_reinsurance_view_context,
     build_reinsurance_wide,
     build_technical_signals,
     company_summary_csv,
@@ -874,7 +875,7 @@ st.sidebar.divider()
 render_sidebar_label("Current module")
 st.sidebar.write(f"**{selected_country} country module**")
 st.sidebar.caption("Version: Colombia MVP Demo")
-st.sidebar.caption("Phase: 3 - Automated regulatory ingestion pipeline")
+st.sidebar.caption("Phase: 4B - Advanced treaty-broker Reinsurance View")
 st.sidebar.caption("Data update mode: Static demo snapshot plus manual pipeline metadata")
 st.sidebar.caption("Automatic updates: Manual-run pipeline available; scheduling not yet enabled")
 st.sidebar.caption(f"Database mode: {'Candidate local test' if USE_CANDIDATE_DB else 'Stable demo'}")
@@ -2457,6 +2458,7 @@ if selected_view == "Reinsurance View":
             indicadores_df["metric_value"] = pd.to_numeric(indicadores_df["metric_value"], errors="coerce")
 
             re_df = indicadores_df[indicadores_df["country"] == selected_country].copy()
+            re_df = re_df[re_df["year"].isin(selected_years)].copy()
 
             # Normalizar textos para comparar mejor entre fuentes
             re_df["company_standard_norm"] = re_df["company_standard"].astype(str).str.strip().str.upper()
@@ -2595,6 +2597,55 @@ if selected_view == "Reinsurance View":
                 if col not in re_wide.columns:
                     re_wide[col] = pd.NA
 
+            market_re_df = indicadores_df[indicadores_df["country"] == selected_country].copy()
+            market_re_df = market_re_df[market_re_df["year"].isin(selected_years)].copy()
+            market_re_df["company_standard_norm"] = market_re_df["company_standard"].astype(str).str.strip().str.upper()
+            market_re_df["line_of_business_standard_norm"] = market_re_df["line_of_business_standard"].astype(str).str.strip().str.upper()
+            market_re_df["is_aggregate_lob"] = market_re_df["line_of_business_standard"].map(
+                lambda value: normalize_match_text(value) in aggregate_lob_lookup
+            )
+
+            if selected_line != "TODOS":
+                mapped_market_line = map_lob_using_mapping_table(
+                    selected_line,
+                    target_source="FASECOLDA - INDICADORES DE GESTION",
+                    country=selected_country
+                )
+                if mapped_market_line is None:
+                    market_re_df = market_re_df.iloc[0:0]
+                else:
+                    market_re_df = market_re_df[
+                        market_re_df["line_of_business_standard_norm"] == str(mapped_market_line).strip().upper()
+                    ]
+
+            if exclude_aggregate_lines and not market_re_df.empty:
+                market_re_df = market_re_df[~market_re_df["is_aggregate_lob"]].copy()
+
+            if market_re_df.empty:
+                market_re_wide = pd.DataFrame()
+            else:
+                market_re_wide = (
+                    market_re_df.pivot_table(
+                        index=group_cols_re,
+                        columns="metric_name",
+                        values="metric_value",
+                        aggfunc="sum"
+                    )
+                    .reset_index()
+                )
+                market_re_wide.columns.name = None
+                for col in expected_cols:
+                    if col not in market_re_wide.columns:
+                        market_re_wide[col] = pd.NA
+
+            reinsurance_context = build_reinsurance_view_context(
+                selected_wide=re_wide,
+                market_wide=market_re_wide,
+                selected_company=selected_company,
+                selected_line=selected_line,
+                minimum_premium=minimum_premium,
+            )
+
             # Recalcular ratios agregados, no sumar ratios
             total_gwp = re_wide["gross_written_premium"].sum()
             total_retained = re_wide["retained_premium"].sum()
@@ -2629,7 +2680,245 @@ if selected_view == "Reinsurance View":
 
             st.divider()
 
-            st.markdown("### Cesión al reaseguro por ramo")
+            render_section_header(
+                "Reinsurance Executive Snapshot",
+                "Treaty-broker view of ceded premium, retained premium, market benchmark and discussion angles.",
+            )
+
+            snapshot_cards = reinsurance_context.get("executive_snapshot", [])
+            if snapshot_cards:
+                for start in range(0, len(snapshot_cards), 4):
+                    card_cols = st.columns(4)
+                    for card, column in zip(snapshot_cards[start:start + 4], card_cols):
+                        with column:
+                            render_metric_card(
+                                card.get("label", "Metric"),
+                                card.get("value", "N/A"),
+                                card.get("detail", ""),
+                            )
+            else:
+                st.warning("Reinsurance indicators are not available for this selection.")
+
+            render_section_header(
+                "Company vs Market Benchmark",
+                "Comparison against the selected market context using the same year and line filters.",
+            )
+
+            benchmark = reinsurance_context.get("market_benchmark", {})
+            selected_summary = benchmark.get("selected", {})
+            market_summary = benchmark.get("market", {})
+            if benchmark.get("available"):
+                benchmark_rows = [
+                    {
+                        "Scope": "Selected company" if selected_company != "TODAS" else "Selected market",
+                        "Emitted premium": format_millions(selected_summary.get("gross_written_premium")),
+                        "Retained premium": format_millions(selected_summary.get("retained_premium")),
+                        "Ceded premium": format_millions(selected_summary.get("reinsurance_ceded_premium")),
+                        "Cession ratio": format_percentage(selected_summary.get("cession_ratio")),
+                        "Retention ratio": format_percentage(selected_summary.get("retention_ratio")),
+                    },
+                    {
+                        "Scope": "Market benchmark",
+                        "Emitted premium": format_millions(market_summary.get("gross_written_premium")),
+                        "Retained premium": format_millions(market_summary.get("retained_premium")),
+                        "Ceded premium": format_millions(market_summary.get("reinsurance_ceded_premium")),
+                        "Cession ratio": format_percentage(market_summary.get("cession_ratio")),
+                        "Retention ratio": format_percentage(market_summary.get("retention_ratio")),
+                    },
+                ]
+                st.dataframe(pd.DataFrame(benchmark_rows), width="stretch", hide_index=True)
+
+                if selected_company != "TODAS":
+                    diff_col_a, diff_col_b = st.columns(2)
+                    with diff_col_a:
+                        render_metric_card(
+                            "Cession difference vs market",
+                            format_percentage(benchmark.get("cession_ratio_difference")),
+                            "Selected company minus market benchmark",
+                        )
+                    with diff_col_b:
+                        render_metric_card(
+                            "Retention difference vs market",
+                            format_percentage(benchmark.get("retention_ratio_difference")),
+                            "Selected company minus market benchmark",
+                        )
+                else:
+                    st.info("Company filter is set to TODAS, so this section shows market-level behavior only.")
+            else:
+                st.warning("Market benchmark is not available for the selected reinsurance filters.")
+
+            render_section_header(
+                "Reinsurance by Line",
+                "Lines ranked by ceded premium, cession behavior and share of selected ceded premium.",
+            )
+
+            by_line = reinsurance_context.get("by_line", pd.DataFrame())
+            if by_line is None or by_line.empty:
+                st.warning("No line-level reinsurance indicators are available for this selection.")
+            else:
+                line_chart = by_line.head(15).copy()
+                line_chart["ceded_mm"] = line_chart["reinsurance_ceded_premium"] / 1_000_000
+                fig_re_line = px.bar(
+                    line_chart,
+                    x="line_of_business_standard",
+                    y="ceded_mm",
+                    title="Top lines by ceded premium",
+                    labels={
+                        "line_of_business_standard": "Line of business",
+                        "ceded_mm": "Ceded premium (COP MM)",
+                    },
+                )
+                st.plotly_chart(fig_re_line, width="stretch")
+
+                line_display = by_line.copy()
+                for amount_col in [
+                    "gross_written_premium",
+                    "retained_premium",
+                    "reinsurance_ceded_premium",
+                    "paid_claims",
+                ]:
+                    line_display[amount_col] = line_display[amount_col].map(format_millions)
+                for ratio_col in [
+                    "cession_ratio",
+                    "retention_ratio",
+                    "paid_claims_ratio",
+                    "ceded_share",
+                ]:
+                    line_display[ratio_col] = line_display[ratio_col].map(format_percentage)
+                st.dataframe(
+                    line_display[
+                        [
+                            "line_of_business_standard",
+                            "gross_written_premium",
+                            "retained_premium",
+                            "reinsurance_ceded_premium",
+                            "cession_ratio",
+                            "retention_ratio",
+                            "paid_claims",
+                            "paid_claims_ratio",
+                            "ceded_share",
+                        ]
+                    ],
+                    width="stretch",
+                    hide_index=True,
+                )
+
+            render_section_header(
+                "Reinsurance Evolution",
+                "Ceded premium, retained premium and cession / retention ratios over available years.",
+            )
+
+            evolution = reinsurance_context.get("evolution", pd.DataFrame())
+            if evolution is None or evolution.empty:
+                st.warning("No annual reinsurance evolution is available for this selection.")
+            else:
+                if evolution["year"].nunique() < 2:
+                    st.info(
+                        "Only one available year is present in the reinsurance source under the selected filters, "
+                        "so year-over-year treaty movement cannot yet be assessed."
+                    )
+                else:
+                    evo_amounts = evolution.melt(
+                        id_vars="year",
+                        value_vars=["reinsurance_ceded_premium", "retained_premium"],
+                        var_name="Metric",
+                        value_name="Amount",
+                    )
+                    evo_amounts["Amount_mm"] = evo_amounts["Amount"] / 1_000_000
+                    evo_amounts["Metric"] = evo_amounts["Metric"].map(
+                        {
+                            "reinsurance_ceded_premium": "Ceded premium",
+                            "retained_premium": "Retained premium",
+                        }
+                    )
+                    fig_evo_amounts = px.line(
+                        evo_amounts,
+                        x="year",
+                        y="Amount_mm",
+                        color="Metric",
+                        markers=True,
+                        title="Ceded and retained premium over time",
+                        labels={"year": "Year", "Amount_mm": "COP MM"},
+                    )
+                    st.plotly_chart(fig_evo_amounts, width="stretch")
+
+                    evo_ratios = evolution.melt(
+                        id_vars="year",
+                        value_vars=["cession_ratio", "retention_ratio"],
+                        var_name="Metric",
+                        value_name="Ratio",
+                    )
+                    evo_ratios["Metric"] = evo_ratios["Metric"].map(
+                        {
+                            "cession_ratio": "Cession ratio",
+                            "retention_ratio": "Retention ratio",
+                        }
+                    )
+                    fig_evo_ratios = px.line(
+                        evo_ratios,
+                        x="year",
+                        y="Ratio",
+                        color="Metric",
+                        markers=True,
+                        title="Cession and retention ratio over time",
+                        labels={"year": "Year", "Ratio": "Ratio"},
+                    )
+                    fig_evo_ratios.update_yaxes(tickformat=".1%")
+                    st.plotly_chart(fig_evo_ratios, width="stretch")
+
+                evo_display = evolution.copy()
+                for amount_col in [
+                    "gross_written_premium",
+                    "retained_premium",
+                    "reinsurance_ceded_premium",
+                    "paid_claims",
+                ]:
+                    evo_display[amount_col] = evo_display[amount_col].map(format_millions)
+                for ratio_col in [
+                    "cession_ratio",
+                    "retention_ratio",
+                    "paid_claims_ratio",
+                    "ceded_premium_growth",
+                    "retained_premium_growth",
+                    "cession_ratio_change",
+                    "retention_ratio_change",
+                ]:
+                    if ratio_col in evo_display.columns:
+                        evo_display[ratio_col] = evo_display[ratio_col].map(format_percentage)
+                st.dataframe(evo_display, width="stretch", hide_index=True)
+
+            render_section_header(
+                "Reinsurance Signals",
+                "Broker-oriented prompts for treaty discussion. These are discussion signals, not underwriting conclusions.",
+            )
+
+            for signal in reinsurance_context.get("signals", []):
+                st.markdown(
+                    f"**{signal.get('severity', 'Signal')} - {signal.get('title', 'Reinsurance signal')}**  \n"
+                    f"{signal.get('explanation', 'No explanation available')}  \n"
+                    f"*Broker follow-up:* {signal.get('follow_up', 'Review with the client before formal use.')}"
+                )
+
+            render_section_header(
+                "Suggested Reinsurance Questions",
+                "Practical questions for client or reinsurer conversations based on available structured data.",
+            )
+
+            for question in reinsurance_context.get("broker_questions", []):
+                st.write(f"- {question}")
+
+            with st.expander("Methodology note", expanded=False):
+                st.write(
+                    "Reinsurance indicators are based on available Fasecolda - Indicadores de Gestion 2025 "
+                    "data normalized in the app database. Cession and retention ratios are recalculated at "
+                    "the selected aggregation level and depend on source definitions. This source remains "
+                    "exploratory for broker intelligence; figures should be validated before formal client, "
+                    "placement, actuarial, or market presentations."
+                )
+
+            st.divider()
+
+            st.markdown("### Detailed reinsurance rankings")
 
             lob_summary = (
                 re_wide.groupby("line_of_business_standard", as_index=False)
@@ -2840,6 +3129,7 @@ if selected_view == "Data Status":
         indicadores_df = load_indicadores_gestion_2025()
         indicadores_validation_df = load_indicadores_gestion_validation()
         indicadores_validation_flags_df = load_indicadores_gestion_validation_flags()
+        pipeline_status = load_pipeline_status()
 
         render_section_header(
             "Data Governance Status",

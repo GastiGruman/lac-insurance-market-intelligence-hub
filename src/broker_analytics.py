@@ -940,6 +940,308 @@ def build_reinsurance_wide(indicadores_df: pd.DataFrame, country: str, company: 
     return wide
 
 
+def aggregate_reinsurance_metrics(reinsurance_wide: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
+    if reinsurance_wide is None or reinsurance_wide.empty:
+        return pd.DataFrame()
+    required = [
+        "gross_written_premium",
+        "retained_premium",
+        "reinsurance_ceded_premium",
+        "paid_claims",
+    ]
+    data = reinsurance_wide.copy()
+    for column in required:
+        if column not in data.columns:
+            data[column] = 0.0
+        data[column] = pd.to_numeric(data[column], errors="coerce").fillna(0.0)
+
+    summary = (
+        data.groupby(group_cols, as_index=False)
+        .agg(
+            gross_written_premium=("gross_written_premium", "sum"),
+            retained_premium=("retained_premium", "sum"),
+            reinsurance_ceded_premium=("reinsurance_ceded_premium", "sum"),
+            paid_claims=("paid_claims", "sum"),
+            companies=("company_standard", "nunique") if "company_standard" in data.columns else ("gross_written_premium", "size"),
+            lines=("line_of_business_standard", "nunique") if "line_of_business_standard" in data.columns else ("gross_written_premium", "size"),
+        )
+    )
+    summary["cession_ratio"] = summary["reinsurance_ceded_premium"] / summary["gross_written_premium"].replace({0: pd.NA})
+    summary["retention_ratio"] = summary["retained_premium"] / summary["gross_written_premium"].replace({0: pd.NA})
+    summary["paid_claims_ratio"] = summary["paid_claims"] / summary["gross_written_premium"].replace({0: pd.NA})
+    return summary
+
+
+def build_reinsurance_executive_snapshot(
+    selected_summary: dict,
+    market_benchmark: dict,
+    by_line: pd.DataFrame,
+    selected_company: str,
+) -> list[dict]:
+    if not selected_summary.get("available"):
+        return []
+    market_gap = market_benchmark.get("cession_ratio_difference")
+    gap_text = (
+        f"{market_gap:+.1%} vs market"
+        if pd.notna(market_gap)
+        else "Market benchmark not available"
+    )
+    main_line = "Not enough data available"
+    if by_line is not None and not by_line.empty:
+        top = by_line.sort_values("reinsurance_ceded_premium", ascending=False).iloc[0]
+        share = top.get("ceded_share", pd.NA)
+        main_line = f"{top['line_of_business_standard']} ({format_percentage(share)})"
+    company_label = "Market" if selected_company == "TODAS" else selected_company
+    broker_angle = (
+        "Review ceded structure versus market and concentration in most ceded lines."
+        if selected_company != "TODAS"
+        else "Use market cession patterns to identify treaty discussion opportunities by line."
+    )
+    return [
+        {"label": "Scope", "value": company_label, "detail": "Selected reinsurance view"},
+        {"label": "Latest year", "value": str(selected_summary.get("period", "N/A")), "detail": "Available source period"},
+        {"label": "Emitted premium", "value": format_millions(selected_summary.get("gross_written_premium", pd.NA)), "detail": "Source gross/emitted premium"},
+        {"label": "Ceded premium", "value": format_millions(selected_summary.get("reinsurance_ceded_premium", pd.NA)), "detail": "Premium ceded to reinsurance"},
+        {"label": "Cession ratio", "value": format_percentage(selected_summary.get("cession_ratio", pd.NA)), "detail": gap_text},
+        {"label": "Retention ratio", "value": format_percentage(selected_summary.get("retention_ratio", pd.NA)), "detail": "Retained premium / emitted premium"},
+        {"label": "Paid claims", "value": format_millions(selected_summary.get("paid_claims", pd.NA)), "detail": "Paid claims from exploratory source"},
+        {"label": "Main ceded line", "value": main_line, "detail": broker_angle},
+    ]
+
+
+def calculate_reinsurance_market_benchmark(
+    selected_wide: pd.DataFrame,
+    market_wide: pd.DataFrame,
+    selected_company: str,
+) -> dict:
+    selected_summary = summarize_reinsurance(selected_wide)
+    market_summary = summarize_reinsurance(market_wide)
+    result = {
+        "selected": selected_summary,
+        "market": market_summary,
+        "cession_ratio_difference": pd.NA,
+        "retention_ratio_difference": pd.NA,
+        "available": selected_summary.get("available", False) and market_summary.get("available", False),
+    }
+    if result["available"] and selected_company != "TODAS":
+        result["cession_ratio_difference"] = selected_summary["cession_ratio"] - market_summary["cession_ratio"]
+        result["retention_ratio_difference"] = selected_summary["retention_ratio"] - market_summary["retention_ratio"]
+    return result
+
+
+def calculate_reinsurance_by_line(reinsurance_wide: pd.DataFrame, minimum_premium: float = 0) -> pd.DataFrame:
+    by_line = aggregate_reinsurance_metrics(reinsurance_wide, ["line_of_business_standard"])
+    if by_line.empty:
+        return by_line
+    by_line = by_line[by_line["gross_written_premium"] >= minimum_premium].copy()
+    total_ceded = by_line["reinsurance_ceded_premium"].sum()
+    by_line["ceded_share"] = by_line["reinsurance_ceded_premium"] / total_ceded if total_ceded else pd.NA
+    return by_line.sort_values("reinsurance_ceded_premium", ascending=False)
+
+
+def calculate_reinsurance_evolution(reinsurance_wide: pd.DataFrame) -> pd.DataFrame:
+    evolution = aggregate_reinsurance_metrics(reinsurance_wide, ["year"])
+    if evolution.empty:
+        return evolution
+    evolution = evolution.sort_values("year")
+    evolution["ceded_premium_growth"] = evolution["reinsurance_ceded_premium"].pct_change()
+    evolution["retained_premium_growth"] = evolution["retained_premium"].pct_change()
+    evolution["cession_ratio_change"] = evolution["cession_ratio"].diff()
+    evolution["retention_ratio_change"] = evolution["retention_ratio"].diff()
+    return evolution
+
+
+def calculate_reinsurance_signals(
+    selected_company: str,
+    selected_summary: dict,
+    market_benchmark: dict,
+    by_line: pd.DataFrame,
+    evolution: pd.DataFrame,
+) -> list[dict]:
+    signals: list[dict] = []
+    cession_ratio = selected_summary.get("cession_ratio", pd.NA)
+    retention_ratio = selected_summary.get("retention_ratio", pd.NA)
+    gap = market_benchmark.get("cession_ratio_difference", pd.NA)
+
+    if pd.notna(gap) and abs(gap) >= 0.10:
+        signals.append(
+            {
+                "severity": "Medium",
+                "title": "Cession behavior differs from market",
+                "explanation": (
+                    f"Selected company cession ratio is {format_percentage(gap)} "
+                    "different from the selected market benchmark."
+                ),
+                "follow_up": "Discuss whether retention appetite, treaty structure or line mix explains the difference.",
+            }
+        )
+    if pd.notna(cession_ratio) and cession_ratio >= 0.45:
+        signals.append(
+            {
+                "severity": "Medium",
+                "title": "High cession ratio",
+                "explanation": f"Cession ratio is {format_percentage(cession_ratio)} in the selected scope.",
+                "follow_up": "Review whether ceded structure remains aligned with growth, volatility and capacity needs.",
+            }
+        )
+    if pd.notna(retention_ratio) and retention_ratio >= 0.80:
+        signals.append(
+            {
+                "severity": "Low",
+                "title": "High retention ratio",
+                "explanation": f"Retention ratio is {format_percentage(retention_ratio)} in the selected scope.",
+                "follow_up": "Ask whether retained exposure is intentional and aligned with risk appetite.",
+            }
+        )
+
+    if by_line is not None and not by_line.empty:
+        top = by_line.iloc[0]
+        if pd.notna(top.get("ceded_share", pd.NA)) and top["ceded_share"] >= 0.35:
+            signals.append(
+                {
+                    "severity": "Medium",
+                    "title": f"Ceded premium concentration in {top['line_of_business_standard']}",
+                    "explanation": (
+                        f"{top['line_of_business_standard']} represents {format_percentage(top['ceded_share'])} "
+                        "of selected ceded premium."
+                    ),
+                    "follow_up": "Review whether treaty capacity and terms are driven by this line.",
+                }
+            )
+        high_paid = by_line[
+            by_line["paid_claims_ratio"].notna() & (by_line["paid_claims_ratio"] >= 0.7)
+        ].sort_values("paid_claims_ratio", ascending=False)
+        if not high_paid.empty:
+            row = high_paid.iloc[0]
+            signals.append(
+                {
+                    "severity": "Medium",
+                    "title": f"High paid claims / premium in {row['line_of_business_standard']}",
+                    "explanation": (
+                        f"Paid claims / emitted premium is {format_percentage(row['paid_claims_ratio'])} "
+                        "for this line in the exploratory source."
+                    ),
+                    "follow_up": "Use as a discussion prompt; validate source methodology before formal conclusions.",
+                }
+            )
+
+    if evolution is not None and len(evolution) > 1:
+        latest = evolution.sort_values("year").iloc[-1]
+        if pd.notna(latest.get("cession_ratio_change", pd.NA)) and abs(latest["cession_ratio_change"]) >= 0.10:
+            signals.append(
+                {
+                    "severity": "Medium",
+                    "title": "Material cession ratio change",
+                    "explanation": (
+                        f"Cession ratio changed by {format_percentage(latest['cession_ratio_change'])} "
+                        "versus the prior available year."
+                    ),
+                    "follow_up": "Ask whether this reflects treaty structure, portfolio mix, pricing or capacity conditions.",
+                }
+            )
+
+    if not signals:
+        signals.append(
+            {
+                "severity": "Low",
+                "title": "No high-priority reinsurance signal",
+                "explanation": "No threshold-based treaty signal was triggered under the selected filters.",
+                "follow_up": "Use benchmark and line tables to guide the reinsurance discussion.",
+            }
+        )
+    return signals
+
+
+def generate_reinsurance_broker_questions(
+    selected_company: str,
+    selected_line: str,
+    by_line: pd.DataFrame,
+    signals: list[dict],
+    market_benchmark: dict,
+) -> list[str]:
+    company_scope = "the market" if selected_company == "TODAS" else selected_company
+    line_scope = "the selected portfolio" if selected_line == "TODOS" else selected_line
+    questions = []
+    if by_line is not None and not by_line.empty:
+        top_line = by_line.iloc[0]["line_of_business_standard"]
+        questions.append(f"What explains the ceded premium concentration in {top_line} for {company_scope}?")
+    else:
+        questions.append(f"What reinsurance structure is most relevant for {company_scope} in {line_scope}?")
+
+    gap = market_benchmark.get("cession_ratio_difference", pd.NA)
+    if pd.notna(gap):
+        questions.append(
+            f"Why is the selected cession ratio {format_percentage(gap)} different from the selected market benchmark?"
+        )
+    else:
+        questions.append("Is the current cession and retention balance aligned with risk appetite and growth plans?")
+
+    material_signal = next((signal for signal in signals if signal.get("severity") in ["High", "Medium"]), None)
+    if material_signal:
+        questions.append(material_signal["follow_up"])
+
+    questions.extend(
+        [
+            "Are there lines where the company expects to retain more or less risk in the next renewal?",
+            "How does the company view market capacity for its most ceded lines?",
+            "Are treaty structures, limits, retentions or reinstatements expected to change?",
+            "Which source figures should be reconciled before using this analysis in a formal placement discussion?",
+        ]
+    )
+    return questions[:8]
+
+
+def build_reinsurance_view_context(
+    selected_wide: pd.DataFrame,
+    market_wide: pd.DataFrame,
+    selected_company: str,
+    selected_line: str,
+    minimum_premium: float,
+) -> dict:
+    selected_summary = summarize_reinsurance(selected_wide)
+    market_benchmark = calculate_reinsurance_market_benchmark(selected_wide, market_wide, selected_company)
+    by_line = calculate_reinsurance_by_line(selected_wide, minimum_premium)
+    evolution = calculate_reinsurance_evolution(selected_wide)
+    signals = calculate_reinsurance_signals(
+        selected_company,
+        selected_summary,
+        market_benchmark,
+        by_line,
+        evolution,
+    )
+    questions = generate_reinsurance_broker_questions(
+        selected_company,
+        selected_line,
+        by_line,
+        signals,
+        market_benchmark,
+    )
+    snapshot = build_reinsurance_executive_snapshot(
+        selected_summary,
+        market_benchmark,
+        by_line,
+        selected_company,
+    )
+    return {
+        "available": selected_summary.get("available", False),
+        "executive_snapshot": snapshot,
+        "selected_summary": selected_summary,
+        "market_benchmark": market_benchmark,
+        "by_line": by_line,
+        "evolution": evolution,
+        "signals": signals,
+        "broker_questions": questions,
+        "reinsurance_brief_context": {
+            "executive_snapshot": snapshot,
+            "company_vs_market": market_benchmark,
+            "by_line": by_line,
+            "evolution": evolution,
+            "signals": signals,
+            "broker_questions": questions,
+        },
+    }
+
+
 def build_technical_signals(
     market_df: pd.DataFrame,
     indicadores_df: pd.DataFrame,

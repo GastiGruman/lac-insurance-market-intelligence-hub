@@ -148,6 +148,20 @@ The Company Brief is a structured broker-preparation view generated from the app
 
 It does not include external intelligence, key people, leadership context or news. Those sources will be handled separately in later AI Brief and News phases. Broker questions and alerts are discussion prompts, not underwriting conclusions.
 
+## Reinsurance View Methodology
+
+The Reinsurance View is a treaty-broker preparation view based on the complementary Fasecolda - Indicadores de Gestion 2025 source. It uses the app's mapping tables to align company and line names where possible, then recalculates cession, retention and paid-claims ratios at the selected aggregation level.
+
+The module is intended to support discussion questions such as where the company cedes more premium, where it appears to retain more risk, how its selected cession ratio compares with the selected market context, and which lines may deserve a treaty conversation.
+
+Important limitations:
+
+- Reinsurance indicators remain exploratory and source-dependent.
+- Ratios are recalculated from monetary values and should not be summed.
+- Aggregate lines can duplicate individual lines and are excluded from rankings by default.
+- Current available reinsurance data may be one-period heavy, so year-over-year treaty movement may not always be available.
+- Signals and questions are broker prompts, not underwriting conclusions or placement advice.
+
 ## Inappropriate Uses
 
 Do not use the app as:

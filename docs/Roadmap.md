@@ -85,6 +85,18 @@ Focus:
 - Keep the brief grounded in structured DuckDB/Fasecolda data.
 - Leave external intelligence, key people and news to later AI Brief / News phases.
 
+### Phase 4B - Advanced Reinsurance View
+
+Status: implemented in this branch.
+
+Focus:
+
+- Convert Reinsurance View into a treaty-broker preparation page.
+- Add executive reinsurance snapshot, company vs market benchmark, reinsurance by line, evolution, treaty signals and broker questions.
+- Keep reinsurance indicators grounded in Fasecolda - Indicadores de Gestion 2025 and mapping tables.
+- Preserve the exploratory methodology warning until the source is fully validated for production use.
+- Leave AI-generated interpretation to a later controlled AI phase.
+
 ## Phase 5 - Controlled AI Module
 
 Status: planned.
