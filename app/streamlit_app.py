@@ -1478,68 +1478,70 @@ if selected_view == "Company Brief":
             market_position = brief.get("market_position", {})
             company_summary = prepare_premium_claims_summary(company_df, ["year"])
 
+            render_section_header("Quick Indicators")
+            if not company_summary.empty:
+                latest_year = int(company_summary["year"].max())
+                latest_row = company_summary[company_summary["year"] == latest_year]
+                latest_premium = latest_row["primas"].sum()
+                latest_claims = latest_row["siniestros"].sum()
+                latest_lr = latest_claims / latest_premium if latest_premium else None
+                latest_growth = latest_row["premium_growth"].iloc[0] if "premium_growth" in latest_row else pd.NA
+                rank_value = (
+                    f"#{int(market_position['rank'])}"
+                    if pd.notna(market_position.get("rank", pd.NA))
+                    else "N/A"
+                )
+
+                quick_cards = [
+                    ("Year", str(latest_year)),
+                    ("Premiums", format_millions(latest_premium)),
+                    ("Claims", format_millions(latest_claims)),
+                    (CLAIMS_PREMIUM_RATIO_LABEL_EN, format_percentage(latest_lr)),
+                    ("Market share", format_percentage(market_position.get("market_share", pd.NA))),
+                    ("Market position", rank_value),
+                ]
+                for start in range(0, len(quick_cards), 3):
+                    quick_cols = st.columns(3)
+                    for col, (label, value) in zip(quick_cols, quick_cards[start:start + 3]):
+                        with col:
+                            render_metric_card(label, value)
+                if pd.notna(latest_growth):
+                    st.caption(f"Premium growth: {format_percentage(latest_growth)} in the latest available year.")
+            else:
+                st.info("Not enough data available for quick indicators.")
+
             render_section_header("Executive Narrative")
             st.write(brief["executive_summary"])
 
-            snapshot_col, indicator_col = st.columns([2.2, 1])
-
-            with indicator_col:
-                render_section_header("Quick Indicators")
-                if not company_summary.empty:
-                    latest_year = int(company_summary["year"].max())
-                    latest_row = company_summary[company_summary["year"] == latest_year]
-                    latest_premium = latest_row["primas"].sum()
-                    latest_claims = latest_row["siniestros"].sum()
-                    latest_lr = latest_claims / latest_premium if latest_premium else None
-                    latest_growth = latest_row["premium_growth"].iloc[0] if "premium_growth" in latest_row else pd.NA
-                    rank_value = (
-                        f"#{int(market_position['rank'])}"
-                        if pd.notna(market_position.get("rank", pd.NA))
-                        else "N/A"
-                    )
-
-                    quick_cards = [
-                        ("Year", str(latest_year)),
-                        ("Premiums", format_millions(latest_premium)),
-                        ("Claims", format_millions(latest_claims)),
-                        (CLAIMS_PREMIUM_RATIO_LABEL_EN, format_percentage(latest_lr)),
-                        ("Market share", format_percentage(market_position.get("market_share", pd.NA))),
-                        ("Market position", rank_value),
-                        ("Premium growth", format_percentage(latest_growth)),
-                    ]
-                    for label, value in quick_cards:
-                        render_metric_card(label, value)
-
-            with snapshot_col:
-                render_section_header(
-                    "Executive Snapshot",
-                    "Interpretive signals for portfolio focus, growth, broker angle and reinsurance discussion.",
-                )
-                snapshot_items = brief.get("executive_snapshot", [])
-                duplicate_snapshot_labels = {
-                    "selected year",
-                    "premium",
-                    "claims / premiums",
-                    "market position",
-                    "market share",
-                    "recent growth",
-                }
-                snapshot_items = [
-                    item for item in snapshot_items
-                    if str(item.get("label", "")).strip().lower() not in duplicate_snapshot_labels
-                ]
-                if snapshot_items:
-                    for start in range(0, len(snapshot_items), 2):
-                        snapshot_cols = st.columns(2)
-                        for col, item in zip(snapshot_cols, snapshot_items[start:start + 2]):
-                            with col:
-                                render_metric_card(
-                                    item.get("label", "Metric"),
-                                    item.get("value", "N/A"),
-                                    item.get("detail", "Not enough data available for this metric."),
-                                )
-                else:
-                    st.info("Not enough data available for the executive snapshot.")
+            render_section_header(
+                "Executive Snapshot",
+                "Interpretive signals for portfolio focus, growth, broker angle and reinsurance discussion.",
+            )
+            snapshot_items = brief.get("executive_snapshot", [])
+            duplicate_snapshot_labels = {
+                "selected year",
+                "premium",
+                "claims / premiums",
+                "market position",
+                "market share",
+                "recent growth",
+            }
+            snapshot_items = [
+                item for item in snapshot_items
+                if str(item.get("label", "")).strip().lower() not in duplicate_snapshot_labels
+            ]
+            if snapshot_items:
+                for start in range(0, len(snapshot_items), 3):
+                    snapshot_cols = st.columns(3)
+                    for col, item in zip(snapshot_cols, snapshot_items[start:start + 3]):
+                        with col:
+                            render_metric_card(
+                                item.get("label", "Metric"),
+                                item.get("value", "N/A"),
+                                item.get("detail", "Not enough data available for this metric."),
+                            )
+            else:
+                st.info("Not enough data available for the executive snapshot.")
 
             with st.container():
                 render_section_header("Market Position", "Ranking and benchmark view for the selected market context.")
