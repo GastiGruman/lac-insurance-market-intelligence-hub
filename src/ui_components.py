@@ -103,7 +103,7 @@ def inject_global_css() -> None:
         .app-header {{
             background: linear-gradient(135deg, #071D3A 0%, #0B2E59 100%);
             border-radius: 10px;
-            padding: 22px 26px;
+            padding: 30px 26px 24px 26px;
             color: #FFFFFF;
             margin-bottom: 18px;
             box-shadow: 0 8px 24px rgba(7, 29, 58, 0.18);

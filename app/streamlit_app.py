@@ -59,12 +59,10 @@ from src.ui_components import (
     format_display_dataframe,
     inject_global_css,
     render_empty_state,
-    render_context_bar,
     render_metric_card,
     render_section_header,
     render_sidebar_label,
     render_status_pill,
-    render_status_strip,
     render_top_header,
 )
 
@@ -819,14 +817,6 @@ render_top_header(
     "Regional market intelligence platform for brokers and strategic decision-making. Colombia is the active data module for the current internal release.",
     kicker="Internal broker intelligence platform",
 )
-render_status_strip(
-    [
-        "Regional platform",
-        "Colombia data module",
-        "Internal use",
-        "Broker intelligence",
-    ]
-)
 
 # ============================================================
 # NAVIGATION
@@ -859,7 +849,7 @@ selected_view = st.radio(
 # SIDEBAR
 # ============================================================
 
-st.sidebar.markdown("## Settings")
+st.sidebar.markdown("## Filters & Info")
 st.sidebar.caption("Colombia Internal v1")
 
 country_options = sorted(analysis_df["country"].dropna().unique())
@@ -951,6 +941,22 @@ with st.sidebar.expander("About this tool", expanded=False):
     st.write(f"Database mode: {'Candidate local test' if USE_CANDIDATE_DB else 'Stable demo'}.")
     st.write("Modules: Market Intelligence, Broker Preparation, Reinsurance, Outputs and Governance.")
 
+with st.sidebar.expander("Data context", expanded=False):
+    st.write(f"Coverage: {selected_country}.")
+    st.write("Source: public market data.")
+    st.write(
+        "Last update: "
+        f"{analysis_last_update.strftime('%d/%m/%Y') if pd.notna(analysis_last_update) else 'N/A'}."
+    )
+
+with st.sidebar.expander("About data & methodology", expanded=False):
+    st.write(
+        "Primary source: Fasecolda - Ciudades y Ramos. Annual analytics use the latest available "
+        "monthly cut per year. Source values are converted from thousands of COP to COP for KPIs, "
+        "charts, briefs and exports."
+    )
+    st.write(CLAIMS_PREMIUM_RATIO_NOTE)
+
 # ============================================================
 # FILTRO PRINCIPAL
 # ============================================================
@@ -994,22 +1000,6 @@ with col3:
     render_metric_card(CLAIMS_PREMIUM_RATIO_LABEL_EN, format_percentage(loss_ratio), "Analytical claims-to-premium ratio")
 with col4:
     render_metric_card("Filtered records", f"{len(filtered_df):,}", "Current selection")
-
-render_context_bar(
-    "Data Context",
-    (
-        f"Source: public market data | Coverage: {selected_country} | "
-        f"Last update: {analysis_last_update.strftime('%d/%m/%Y') if pd.notna(analysis_last_update) else 'N/A'}"
-    ),
-)
-
-with st.expander("About data & methodology", expanded=False):
-    st.write(
-        "Primary source: Fasecolda - Ciudades y Ramos. Annual analytics use the latest available "
-        "monthly cut per year. Source values are converted from thousands of COP to COP for KPIs, "
-        "charts, briefs and exports."
-    )
-    st.write(CLAIMS_PREMIUM_RATIO_NOTE)
 
 st.divider()
 
@@ -1509,6 +1499,11 @@ if selected_view == "Company Brief":
                 "Compact view of market position, portfolio focus, growth, Claims / Premiums and broker angle.",
             )
             snapshot_items = brief.get("executive_snapshot", [])
+            duplicate_snapshot_labels = {"selected year", "premium", "claims / premiums"}
+            snapshot_items = [
+                item for item in snapshot_items
+                if str(item.get("label", "")).strip().lower() not in duplicate_snapshot_labels
+            ]
             if snapshot_items:
                 for start in range(0, len(snapshot_items), 4):
                     snapshot_cols = st.columns(4)
