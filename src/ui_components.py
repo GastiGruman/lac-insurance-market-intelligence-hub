@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import html
+import re
 import plotly.graph_objects as go
+import pandas as pd
 import streamlit as st
 
 
@@ -223,6 +225,29 @@ def inject_global_css() -> None:
             margin: 0;
         }}
 
+        .context-bar {{
+            background: #FFFFFF;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin: 8px 0 14px 0;
+            box-shadow: 0 1px 8px rgba(15, 23, 42, 0.05);
+        }}
+
+        .context-bar-title {{
+            color: var(--navy);
+            font-size: 0.82rem;
+            font-weight: 760;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-bottom: 4px;
+        }}
+
+        .context-bar-body {{
+            color: var(--muted);
+            font-size: 0.86rem;
+        }}
+
         .sidebar-label {{
             color: var(--navy);
             font-weight: 760;
@@ -321,5 +346,79 @@ def render_empty_state(message: str, next_step: str | None = None) -> None:
     )
 
 
+def render_context_bar(title: str, body: str) -> None:
+    st.markdown(
+        f"""
+        <div class="context-bar">
+          <div class="context-bar-title">{html.escape(title)}</div>
+          <div class="context-bar-body">{html.escape(body)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_sidebar_label(label: str) -> None:
     st.sidebar.markdown(f'<div class="sidebar-label">{html.escape(label)}</div>', unsafe_allow_html=True)
+
+
+def format_field_label(label: object) -> str:
+    raw = "" if label is None else str(label)
+    if not raw:
+        return raw
+
+    normalized = raw.strip().replace("/", " / ")
+    known = {
+        "claims_premiums": "Claims / Premiums",
+        "claims_to_premium": "Claims / Premiums",
+        "claims_to_premium_ratio": "Claims / Premiums",
+        "siniestralidad": "Claims / Premiums",
+        "gross_written_premium": "Gross Written Premium",
+        "reinsurance_ceded_premium": "Reinsurance Ceded Premium",
+        "reinsurance_cession_ratio": "Reinsurance Cession Ratio",
+        "retention_ratio": "Retention Ratio",
+        "retained_premium": "Retained Premium",
+        "paid_claims": "Paid Claims",
+        "market_share": "Market Share",
+        "premium_growth": "Premium Growth",
+        "source_file": "Source File",
+        "source_sheet": "Source Sheet",
+        "period_date": "Period Date",
+        "company_name_norm": "Company Name Norm",
+        "company_standard": "Company",
+        "company_name": "Company Name",
+        "line_of_business_standard": "Line Of Business",
+        "line_of_business": "Line Of Business",
+        "lob_group": "Line Group",
+        "metric_name": "Metric",
+        "metric_value": "Value",
+        "record_count": "Record Count",
+        "update_date": "Update Date",
+    }
+
+    key = re.sub(r"[^a-z0-9]+", "_", normalized.lower()).strip("_")
+    if key in known:
+        return known[key]
+
+    acronyms = {"AI", "COP", "SOAT", "IBNR", "PML", "YTD", "CSV", "HTML", "PDF", "PPT", "URL", "ID"}
+    text = re.sub(r"[_]+", " ", normalized)
+    text = re.sub(r"\s+", " ", text).strip()
+    words = []
+    for word in text.split(" "):
+        clean = re.sub(r"[^A-Za-z0-9]", "", word)
+        upper_clean = clean.upper()
+        if upper_clean in acronyms:
+            words.append(word.upper())
+        elif word == "/":
+            words.append("/")
+        else:
+            words.append(word[:1].upper() + word[1:].lower())
+    return " ".join(words).replace(" / ", " / ")
+
+
+def format_display_dataframe(data: pd.DataFrame) -> pd.DataFrame:
+    if not isinstance(data, pd.DataFrame):
+        return data
+    display = data.copy()
+    display.columns = [format_field_label(column) for column in display.columns]
+    return display

@@ -56,8 +56,10 @@ from src.exports import (
 )
 from src.ui_components import (
     configure_plotly_theme,
+    format_display_dataframe,
     inject_global_css,
     render_empty_state,
+    render_context_bar,
     render_metric_card,
     render_section_header,
     render_sidebar_label,
@@ -274,6 +276,10 @@ def render_section_error(error):
     st.error("This section could not be loaded. Please adjust the filters or try again.")
     if DEBUG_MODE:
         st.exception(error)
+
+
+def render_dataframe(data, **kwargs):
+    st.dataframe(format_display_dataframe(data), **kwargs)
 
 
 def warn_and_stop(message):
@@ -810,45 +816,67 @@ run_time = datetime.now()
 
 render_top_header(
     APP_NAME,
-    "Colombia MVP - broker-focused market, company and reinsurance intelligence. Explore Fasecolda-based market data, company briefs, reinsurance indicators, internal-data AI-style briefs, curated external intelligence and broker-ready exports.",
-    kicker="Internal broker intelligence product",
+    "Regional market intelligence platform for brokers and strategic decision-making. Colombia is the active data module for the current internal release.",
+    kicker="Internal broker intelligence platform",
 )
 render_status_strip(
     [
-        "Colombia MVP",
-        "Static demo snapshot",
-        "Internal use / broker preparation",
-        "Source: public Fasecolda data",
+        "Regional platform",
+        "Colombia data module",
+        "Internal use",
+        "Broker intelligence",
     ]
+)
+
+# ============================================================
+# NAVIGATION
+# ============================================================
+
+PAGE_OPTIONS = [
+    "Market Overview",
+    "Company Explorer",
+    "Line of Business Explorer",
+    "Company Brief",
+    "AI Brief",
+    "News / External Intelligence",
+    "Technical Signals",
+    "Reinsurance View",
+    "Data Status",
+    "Reports / Export",
+    "Data Table",
+]
+
+render_section_header("Module", "Select the workspace you want to use.")
+selected_view = st.radio(
+    "Module",
+    PAGE_OPTIONS,
+    horizontal=True,
+    label_visibility="collapsed",
+    key="main_navigation",
 )
 
 # ============================================================
 # SIDEBAR
 # ============================================================
 
-st.sidebar.markdown("## Market Intelligence")
+st.sidebar.markdown("## Settings")
 st.sidebar.caption("Colombia Internal v1")
-st.sidebar.divider()
-
-render_sidebar_label("Module groups")
-st.sidebar.caption(
-    "Market Intelligence: overview, companies, lines. "
-    "Broker Preparation: briefs, external intelligence, signals. "
-    "Reinsurance: cession and retention. "
-    "Outputs and Governance: exports, data table, data status."
-)
-
-render_sidebar_label("Market scope")
 
 country_options = sorted(analysis_df["country"].dropna().unique())
 if not country_options:
     warn_and_stop("Data not available for the selected source.")
 
-selected_country = st.sidebar.selectbox(
-    "Country",
-    country_options,
-    index=0
-)
+render_section_header("Context Filters", "Use these filters to update all modules.")
+
+filter_col_a, filter_col_b, filter_col_c, filter_col_d, filter_col_e = st.columns([1.1, 1.7, 1.8, 2.2, 1.4])
+
+with filter_col_a:
+    selected_country = st.selectbox(
+        "Country",
+        country_options,
+        index=0,
+        key="filter_country",
+    )
 
 country_df = analysis_df[analysis_df["country"] == selected_country]
 
@@ -856,42 +884,48 @@ years = sorted(country_df["year"].dropna().unique())
 if not years:
     warn_and_stop("Data not available for the selected country.")
 
-selected_years = st.sidebar.multiselect(
-    "Years",
-    years,
-    default=years,
-    help="Use these filters to update all modules."
-)
+with filter_col_b:
+    selected_years = st.multiselect(
+        "Years",
+        years,
+        default=years,
+        help="Use these filters to update all modules.",
+        key="filter_years",
+    )
 
 if not selected_years:
     render_empty_state(
         "Please select at least one year to continue.",
-        "Use the Years filter in the sidebar to restore the dashboard."
+        "Use the Years filter above to restore the dashboard."
     )
     st.stop()
 
-render_sidebar_label("Portfolio filters")
-
 company_options = ["TODAS"] + sorted(country_df["company_standard"].dropna().unique())
-selected_company = st.sidebar.selectbox(
-    "Company",
-    company_options,
-    help="Select a company or keep TODAS for the full selected market."
-)
+with filter_col_c:
+    selected_company = st.selectbox(
+        "Company",
+        company_options,
+        help="Select a company or keep TODAS for the full selected market.",
+        key="filter_company",
+    )
 
 line_options = ["TODOS"] + sorted(country_df["line_of_business_standard"].dropna().unique())
-selected_line = st.sidebar.selectbox(
-    "Line of business",
-    line_options,
-    help="Select a line of business or keep TODOS for all lines."
-)
+with filter_col_d:
+    selected_line = st.selectbox(
+        "Line of business",
+        line_options,
+        help="Select a line of business or keep TODOS for all lines.",
+        key="filter_line",
+    )
 
 city_options = ["TODAS"] + sorted(country_df["city"].dropna().unique())
-selected_city = st.sidebar.selectbox(
-    "City",
-    city_options,
-    help="Use city only when local market detail is needed."
-)
+with filter_col_e:
+    selected_city = st.selectbox(
+        "City",
+        city_options,
+        help="Use city only when local market detail is needed.",
+        key="filter_city",
+    )
 
 st.sidebar.divider()
 
@@ -908,18 +942,14 @@ minimum_premium = minimum_premium_mm * 1_000_000
 
 st.sidebar.divider()
 
-render_sidebar_label("Current module")
-st.sidebar.write(f"**{selected_country} country module**")
-st.sidebar.caption("Version: Colombia Internal v1")
-st.sidebar.caption("Current mode: Streamlit Cloud demo")
-st.sidebar.caption("Data update mode: Static snapshot / manual pipeline")
-st.sidebar.caption("External news: curated/manual")
-st.sidebar.caption("AI Brief: internal-data deterministic mode")
-st.sidebar.caption("Automation: scheduling not yet enabled")
-st.sidebar.caption(f"Database mode: {'Candidate local test' if USE_CANDIDATE_DB else 'Stable demo'}")
-st.sidebar.caption("Data model: Regional Market Core")
-st.sidebar.caption("Primary source: Fasecolda - Ciudades y Ramos")
-st.sidebar.caption("Annual views use the latest available monthly cut per year.")
+with st.sidebar.expander("About this tool", expanded=False):
+    st.write("Internal broker intelligence platform for market, company, reinsurance and export workflows.")
+    st.write("Current mode: Streamlit Cloud demo.")
+    st.write("Data update mode: static snapshot / manual pipeline.")
+    st.write("External news: curated/manual.")
+    st.write("AI Brief: internal-data deterministic mode.")
+    st.write(f"Database mode: {'Candidate local test' if USE_CANDIDATE_DB else 'Stable demo'}.")
+    st.write("Modules: Market Intelligence, Broker Preparation, Reinsurance, Outputs and Governance.")
 
 # ============================================================
 # FILTRO PRINCIPAL
@@ -965,44 +995,23 @@ with col3:
 with col4:
     render_metric_card("Filtered records", f"{len(filtered_df):,}", "Current selection")
 
-st.caption(
-    f"Selected country: {selected_country} | "
-    f"Primary source: Fasecolda - Ciudades y Ramos | "
-    f"Analytics use the latest available monthly cut per year | "
-    f"Source values converted from thousands of COP to COP | "
-    f"Last available dataset date: "
-    f"{analysis_last_update.strftime('%d/%m/%Y') if pd.notna(analysis_last_update) else 'N/A'}"
+render_context_bar(
+    "Data Context",
+    (
+        f"Source: public market data | Coverage: {selected_country} | "
+        f"Last update: {analysis_last_update.strftime('%d/%m/%Y') if pd.notna(analysis_last_update) else 'N/A'}"
+    ),
 )
 
-st.info(CLAIMS_PREMIUM_RATIO_NOTE)
+with st.expander("About data & methodology", expanded=False):
+    st.write(
+        "Primary source: Fasecolda - Ciudades y Ramos. Annual analytics use the latest available "
+        "monthly cut per year. Source values are converted from thousands of COP to COP for KPIs, "
+        "charts, briefs and exports."
+    )
+    st.write(CLAIMS_PREMIUM_RATIO_NOTE)
 
 st.divider()
-
-# ============================================================
-# LAZY NAVIGATION
-# ============================================================
-
-PAGE_OPTIONS = [
-    "Market Overview",
-    "Company Explorer",
-    "Line of Business Explorer",
-    "Company Brief",
-    "AI Brief",
-    "News / External Intelligence",
-    "Technical Signals",
-    "Reinsurance View",
-    "Data Status",
-    "Reports / Export",
-    "Data Table",
-]
-
-selected_view = st.radio(
-    "Navigation",
-    PAGE_OPTIONS,
-    horizontal=True,
-    label_visibility="collapsed",
-    key="main_navigation",
-)
 
 # ============================================================
 # TAB 1 — MARKET OVERVIEW
@@ -1100,7 +1109,7 @@ if selected_view == "Market Overview":
         st.subheader("Resumen anual")
 
         yearly_display = make_display_summary(yearly_lr)
-        st.dataframe(
+        render_dataframe(
             yearly_display[["year", "primas", "siniestros", CLAIMS_PREMIUM_RATIO_LABEL_ES, "premium_growth"]],
             width="stretch"
         )
@@ -1294,7 +1303,7 @@ if selected_view == "Company Explorer":
             render_section_header("Annual Company Summary", "Premiums, claims, Claims / Premiums and growth by year.")
 
             company_display = make_display_summary(company_summary)
-            st.dataframe(
+            render_dataframe(
                 company_display[["year", "primas", "siniestros", CLAIMS_PREMIUM_RATIO_LABEL_ES, "premium_growth"]],
                 width="stretch"
             )
@@ -1418,7 +1427,7 @@ if selected_view == "Line of Business Explorer":
             render_section_header("Annual Line Summary", "Premiums, claims, Claims / Premiums and growth by year.")
 
             line_display = make_display_summary(line_summary)
-            st.dataframe(
+            render_dataframe(
                 line_display[["year", "primas", "siniestros", CLAIMS_PREMIUM_RATIO_LABEL_ES, "premium_growth"]],
                 width="stretch"
             )
@@ -1565,7 +1574,7 @@ if selected_view == "Company Brief":
                         lambda row: f"{row['company_standard']} (selected)" if row["is_selected_company"] else row["company_standard"],
                         axis=1,
                     )
-                    st.dataframe(
+                    render_dataframe(
                         competitors_display[
                             [
                                 "company_label",
@@ -1588,7 +1597,7 @@ if selected_view == "Company Brief":
                     premium_evolution_display = premium_evolution.rename(
                         columns={"siniestralidad_display": CLAIMS_PREMIUM_RATIO_LABEL_ES}
                     )
-                    st.dataframe(
+                    render_dataframe(
                         premium_evolution_display[
                             [
                                 "year",
@@ -1607,7 +1616,7 @@ if selected_view == "Company Brief":
                     market_share_display["company_premium"] = market_share_display["primas"].map(format_millions)
                     market_share_display["market_premium"] = market_share_display["market_primas"].map(format_millions)
                     market_share_display["market_share_display"] = market_share_display["market_share"].map(format_percentage)
-                    st.dataframe(
+                    render_dataframe(
                         market_share_display[
                             ["year", "company_premium", "market_premium", "market_share_display"]
                         ],
@@ -1624,7 +1633,7 @@ if selected_view == "Company Brief":
                     portfolio_display["portfolio_share_display"] = portfolio_display["portfolio_share"].map(format_percentage)
                     portfolio_display["claims_premiums_display"] = portfolio_display["siniestralidad"].map(format_percentage)
                     portfolio_display["premium_growth_display"] = portfolio_display["premium_growth"].map(format_percentage)
-                    st.dataframe(
+                    render_dataframe(
                         portfolio_display[
                             [
                                 "line_of_business_standard",
@@ -1695,7 +1704,7 @@ if selected_view == "Company Brief":
                     growth_display["primas_display"] = growth_display["primas"].map(format_millions)
                     growth_display["premium_growth_display"] = growth_display["premium_growth"].map(format_percentage)
                     growth_display["claims_premiums_change_display"] = growth_display["claims_premiums_change"].map(format_percentage)
-                    st.dataframe(
+                    render_dataframe(
                         growth_display[
                             [
                                 "line_of_business_standard",
@@ -1722,7 +1731,7 @@ if selected_view == "Company Brief":
                             "loss_ratio_change_display": "Change in Claims / Premiums",
                         }
                     )
-                    st.dataframe(
+                    render_dataframe(
                         deterioration_display[
                             [
                                 "line_of_business_standard",
@@ -1749,7 +1758,7 @@ if selected_view == "Company Brief":
                     re_line_display["cession_ratio_display"] = re_line_display["cession_ratio"].map(format_percentage)
                     re_line_display["retention_ratio_display"] = re_line_display["retention_ratio"].map(format_percentage)
                     with st.expander("Line-level reinsurance preview", expanded=False):
-                        st.dataframe(
+                        render_dataframe(
                             re_line_display[
                                 [
                                     "line_of_business_standard",
@@ -2231,7 +2240,7 @@ if selected_view == "News / External Intelligence":
                     "Leadership intelligence remains manual-only and should not be inferred or invented."
                 )
             else:
-                st.dataframe(people_df, width="stretch", hide_index=True)
+                render_dataframe(people_df, width="stretch", hide_index=True)
 
         with st.expander("Future live news mode", expanded=False):
             if ENABLE_LIVE_NEWS:
@@ -2296,7 +2305,7 @@ if selected_view == "Technical Signals":
                 else format_millions(row["metric_value"]),
                 axis=1,
             )
-            st.dataframe(
+            render_dataframe(
                 signal_display[
                     [
                         "signal_type",
@@ -2314,7 +2323,7 @@ if selected_view == "Technical Signals":
             watchlist_display = signal_display[signal_display["signal_type"] == "Broker watchlist"]
             if not watchlist_display.empty:
                 st.markdown("### Broker watchlist")
-                st.dataframe(
+                render_dataframe(
                     watchlist_display[
                         [
                             "metric_display",
@@ -2788,7 +2797,7 @@ if selected_view == "Reinsurance View":
                         "Retention ratio": format_percentage(market_summary.get("retention_ratio")),
                     },
                 ]
-                st.dataframe(pd.DataFrame(benchmark_rows), width="stretch", hide_index=True)
+                render_dataframe(pd.DataFrame(benchmark_rows), width="stretch", hide_index=True)
 
                 if selected_company != "TODAS":
                     diff_col_a, diff_col_b = st.columns(2)
@@ -2847,7 +2856,7 @@ if selected_view == "Reinsurance View":
                     "ceded_share",
                 ]:
                     line_display[ratio_col] = line_display[ratio_col].map(format_percentage)
-                st.dataframe(
+                render_dataframe(
                     line_display[
                         [
                             "line_of_business_standard",
@@ -2947,7 +2956,7 @@ if selected_view == "Reinsurance View":
                 ]:
                     if ratio_col in evo_display.columns:
                         evo_display[ratio_col] = evo_display[ratio_col].map(format_percentage)
-                st.dataframe(evo_display, width="stretch", hide_index=True)
+                render_dataframe(evo_display, width="stretch", hide_index=True)
 
             render_section_header(
                 "Reinsurance Signals",
@@ -3112,7 +3121,7 @@ if selected_view == "Reinsurance View":
             lob_display["retention_ratio"] = lob_display["retention_ratio"].map(format_percentage)
             lob_display["paid_claims_ratio"] = lob_display["paid_claims_ratio"].map(format_percentage)
 
-            st.dataframe(
+            render_dataframe(
                 lob_display[
                     [
                         "line_of_business_standard",
@@ -3143,10 +3152,10 @@ if selected_view == "Reinsurance View":
                 col_v1, col_v2 = st.columns([1, 2])
 
                 with col_v1:
-                    st.dataframe(validation_counts_re, width="stretch")
+                    render_dataframe(validation_counts_re, width="stretch")
 
                 with col_v2:
-                    st.dataframe(indicadores_validation_df, width="stretch")
+                    render_dataframe(indicadores_validation_df, width="stretch")
 
             if indicadores_validation_flags_df.empty:
                 st.info(
@@ -3169,7 +3178,7 @@ if selected_view == "Reinsurance View":
                     .sort_values(["severity", "records"], ascending=[True, False])
                 )
 
-                st.dataframe(flag_counts, width="stretch")
+                render_dataframe(flag_counts, width="stretch")
 
             st.warning(
                 "Metodología: esta vista usa Fasecolda - Indicadores de Gestión 2025. "
@@ -3375,7 +3384,7 @@ if selected_view == "Data Status":
                     ignore_index=True
                 )
 
-        st.dataframe(source_summary, width="stretch")
+        render_dataframe(source_summary, width="stretch")
 
         st.info(
             "La fuente principal del core regional es Fasecolda - Ciudades y Ramos. "
@@ -3440,7 +3449,7 @@ if selected_view == "Data Status":
 
         available_metrics["metric_display"] = available_metrics["metric_name"].map(metric_name_display).fillna(available_metrics["metric_name"])
 
-        st.dataframe(
+        render_dataframe(
             available_metrics[["country", "metric_display", "records", "first_date", "last_date"]],
             width="stretch"
         )
@@ -3458,7 +3467,7 @@ if selected_view == "Data Status":
             .sort_values("source_file")
         )
 
-        st.dataframe(files_summary, width="stretch")
+        render_dataframe(files_summary, width="stretch")
 
         render_section_header("Validation Checks", "Automated data validation results and warning counts.")
 
@@ -3474,10 +3483,10 @@ if selected_view == "Data Status":
             col_i, col_j = st.columns([1, 2])
 
             with col_i:
-                st.dataframe(validation_counts, width="stretch")
+                render_dataframe(validation_counts, width="stretch")
 
             with col_j:
-                st.dataframe(validation_df, width="stretch")
+                render_dataframe(validation_df, width="stretch")
 
         render_section_header("Indicadores de Gestión 2025 Validation", "Exploratory reinsurance-source warnings and flags.")
 
@@ -3493,10 +3502,10 @@ if selected_view == "Data Status":
             col_k, col_l = st.columns([1, 2])
 
             with col_k:
-                st.dataframe(indicadores_validation_counts, width="stretch")
+                render_dataframe(indicadores_validation_counts, width="stretch")
 
             with col_l:
-                st.dataframe(indicadores_validation_df, width="stretch")
+                render_dataframe(indicadores_validation_df, width="stretch")
 
         if indicadores_validation_flags_df.empty:
             st.info("No hay flags detallados cargados para Indicadores de Gestión 2025.")
@@ -3508,7 +3517,7 @@ if selected_view == "Data Status":
                 .rename(columns={"size": "records"})
                 .sort_values(["severity", "records"], ascending=[True, False])
             )
-            st.dataframe(indicadores_flags_status, width="stretch")
+            render_dataframe(indicadores_flags_status, width="stretch")
 
         st.info(
             "Current version: Colombia Internal v1. This version is suitable for limited internal broker "
@@ -3677,7 +3686,7 @@ if selected_view == "Reports / Export":
         render_section_header("Preview", "Review the selected export before downloading or copying.")
 
         if export_type == "Filtered Data":
-            st.dataframe(filtered_df.head(1000), width="stretch")
+            render_dataframe(filtered_df.head(1000), width="stretch")
             csv_bytes = dataframe_to_csv_bytes(filtered_df)
             excel_bytes = dataframe_to_excel_bytes(filtered_df, sheet_name="filtered_data")
             filtered_file_base = sanitize_export_filename(
@@ -3776,7 +3785,7 @@ if selected_view == "Data Table":
             "Inspect the first 1,000 filtered records for traceability and internal analysis.",
         )
 
-        st.dataframe(
+        render_dataframe(
             filtered_df.head(1000),
             width="stretch"
         )
