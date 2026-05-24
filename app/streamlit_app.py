@@ -1009,19 +1009,6 @@ st.divider()
 
 if selected_view == "Market Overview":
     try:
-        render_section_header(
-            "Executive Market Dashboard",
-            "A broker-focused view of premiums, claims, claims-to-premium ratio, market movement, and portfolio concentration under the selected filters.",
-        )
-
-        action_col_a, action_col_b, action_col_c = st.columns(3)
-        with action_col_a:
-            render_metric_card("Key action", "Market Dashboard", "Review the trend charts below")
-        with action_col_b:
-            render_metric_card("Key action", "Company Brief", "Select a company in the sidebar")
-        with action_col_c:
-            render_metric_card("Key action", "Data Status", "Validate coverage and warnings")
-
         render_section_header("Market Trends", "Premiums, claims and claims-to-premium ratio for the selected market scope.")
 
         year_summary = (
@@ -1494,12 +1481,51 @@ if selected_view == "Company Brief":
                 render_section_error(exc)
                 st.stop()
 
+            market_position = brief.get("market_position", {})
+            narrative_col, indicator_col = st.columns([2, 1])
+
+            with narrative_col:
+                render_section_header("Executive Narrative")
+                st.write(brief["executive_summary"])
+
+            with indicator_col:
+                render_section_header("Quick Indicators")
+                company_summary = prepare_premium_claims_summary(company_df, ["year"])
+
+                if not company_summary.empty:
+                    latest_year = int(company_summary["year"].max())
+                    latest_row = company_summary[company_summary["year"] == latest_year]
+                    latest_premium = latest_row["primas"].sum()
+                    latest_claims = latest_row["siniestros"].sum()
+                    latest_lr = latest_claims / latest_premium if latest_premium else None
+                    latest_growth = latest_row["premium_growth"].iloc[0] if "premium_growth" in latest_row else pd.NA
+                    rank_value = (
+                        f"#{int(market_position['rank'])}"
+                        if pd.notna(market_position.get("rank", pd.NA))
+                        else "N/A"
+                    )
+
+                    render_metric_card("Year", str(latest_year))
+                    render_metric_card("Premiums", format_millions(latest_premium))
+                    render_metric_card("Claims", format_millions(latest_claims))
+                    render_metric_card(CLAIMS_PREMIUM_RATIO_LABEL_EN, format_percentage(latest_lr))
+                    render_metric_card("Market share", format_percentage(market_position.get("market_share", pd.NA)))
+                    render_metric_card("Market position", rank_value)
+                    render_metric_card("Premium growth", format_percentage(latest_growth))
+
             render_section_header(
                 "Executive Snapshot",
-                "Compact view of market position, portfolio focus, growth, Claims / Premiums and broker angle.",
+                "Interpretive signals for portfolio focus, growth, broker angle and reinsurance discussion.",
             )
             snapshot_items = brief.get("executive_snapshot", [])
-            duplicate_snapshot_labels = {"selected year", "premium", "claims / premiums"}
+            duplicate_snapshot_labels = {
+                "selected year",
+                "premium",
+                "claims / premiums",
+                "market position",
+                "market share",
+                "recent growth",
+            }
             snapshot_items = [
                 item for item in snapshot_items
                 if str(item.get("label", "")).strip().lower() not in duplicate_snapshot_labels
@@ -1517,14 +1543,8 @@ if selected_view == "Company Brief":
             else:
                 st.info("Not enough data available for the executive snapshot.")
 
-            col_a, col_b = st.columns([2, 1])
-
-            with col_a:
-                render_section_header("Executive Narrative")
-                st.write(brief["executive_summary"])
-
+            with st.container():
                 render_section_header("Market Position", "Premium ranking, market share and comparison with the selected market.")
-                market_position = brief.get("market_position", {})
                 position_cols = st.columns(4)
                 with position_cols[0]:
                     rank_value = (
@@ -1784,37 +1804,6 @@ if selected_view == "Company Brief":
                 render_section_header("Broker Questions")
                 for question in brief["questions"]:
                     st.write(f"- {question}")
-
-            with col_b:
-                render_section_header("Quick Indicators")
-
-                company_summary = prepare_premium_claims_summary(company_df, ["year"])
-
-                if not company_summary.empty:
-                    latest_year = int(company_summary["year"].max())
-                    latest_row = company_summary[company_summary["year"] == latest_year]
-
-                    latest_premium = latest_row["primas"].sum()
-                    latest_claims = latest_row["siniestros"].sum()
-                    latest_lr = latest_claims / latest_premium if latest_premium else None
-
-                    render_metric_card("Year", str(latest_year))
-                    render_metric_card("Premiums", format_millions(latest_premium))
-                    render_metric_card("Claims", format_millions(latest_claims))
-                    render_metric_card(CLAIMS_PREMIUM_RATIO_LABEL_EN, format_percentage(latest_lr))
-
-                if company_reinsurance_summary.get("available"):
-                    render_section_header("Reinsurance")
-                    render_metric_card("Cession ratio", format_percentage(company_reinsurance_summary["cession_ratio"]))
-                    render_metric_card("Retention ratio", format_percentage(company_reinsurance_summary["retention_ratio"]))
-                    render_metric_card("Ceded premium", format_millions(company_reinsurance_summary["reinsurance_ceded_premium"]))
-                else:
-                    st.info("Reinsurance indicators not available for this selection.")
-
-                render_section_header("Data Source")
-                st.write(f"Source: {brief['source']['source']}")
-                st.write(f"Period: {brief['source']['period']}")
-                st.write(f"Records: {brief['source']['records']:,}")
 
             st.divider()
 
