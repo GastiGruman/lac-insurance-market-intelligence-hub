@@ -1482,36 +1482,38 @@ if selected_view == "Company Brief":
                 st.stop()
 
             market_position = brief.get("market_position", {})
-            narrative_col, indicator_col = st.columns([2, 1])
+            company_summary = prepare_premium_claims_summary(company_df, ["year"])
 
-            with narrative_col:
-                render_section_header("Executive Narrative")
-                st.write(brief["executive_summary"])
+            render_section_header("Executive Narrative")
+            st.write(brief["executive_summary"])
 
-            with indicator_col:
-                render_section_header("Quick Indicators")
-                company_summary = prepare_premium_claims_summary(company_df, ["year"])
+            render_section_header("Quick Indicators")
+            if not company_summary.empty:
+                latest_year = int(company_summary["year"].max())
+                latest_row = company_summary[company_summary["year"] == latest_year]
+                latest_premium = latest_row["primas"].sum()
+                latest_claims = latest_row["siniestros"].sum()
+                latest_lr = latest_claims / latest_premium if latest_premium else None
+                latest_growth = latest_row["premium_growth"].iloc[0] if "premium_growth" in latest_row else pd.NA
+                rank_value = (
+                    f"#{int(market_position['rank'])}"
+                    if pd.notna(market_position.get("rank", pd.NA))
+                    else "N/A"
+                )
 
-                if not company_summary.empty:
-                    latest_year = int(company_summary["year"].max())
-                    latest_row = company_summary[company_summary["year"] == latest_year]
-                    latest_premium = latest_row["primas"].sum()
-                    latest_claims = latest_row["siniestros"].sum()
-                    latest_lr = latest_claims / latest_premium if latest_premium else None
-                    latest_growth = latest_row["premium_growth"].iloc[0] if "premium_growth" in latest_row else pd.NA
-                    rank_value = (
-                        f"#{int(market_position['rank'])}"
-                        if pd.notna(market_position.get("rank", pd.NA))
-                        else "N/A"
-                    )
-
-                    render_metric_card("Year", str(latest_year))
-                    render_metric_card("Premiums", format_millions(latest_premium))
-                    render_metric_card("Claims", format_millions(latest_claims))
-                    render_metric_card(CLAIMS_PREMIUM_RATIO_LABEL_EN, format_percentage(latest_lr))
-                    render_metric_card("Market share", format_percentage(market_position.get("market_share", pd.NA)))
-                    render_metric_card("Market position", rank_value)
-                    render_metric_card("Premium growth", format_percentage(latest_growth))
+                quick_cols = st.columns(7)
+                quick_cards = [
+                    ("Year", str(latest_year)),
+                    ("Premiums", format_millions(latest_premium)),
+                    ("Claims", format_millions(latest_claims)),
+                    (CLAIMS_PREMIUM_RATIO_LABEL_EN, format_percentage(latest_lr)),
+                    ("Market share", format_percentage(market_position.get("market_share", pd.NA))),
+                    ("Market position", rank_value),
+                    ("Premium growth", format_percentage(latest_growth)),
+                ]
+                for col, (label, value) in zip(quick_cols, quick_cards):
+                    with col:
+                        render_metric_card(label, value)
 
             render_section_header(
                 "Executive Snapshot",
@@ -1544,33 +1546,38 @@ if selected_view == "Company Brief":
                 st.info("Not enough data available for the executive snapshot.")
 
             with st.container():
-                render_section_header("Market Position", "Premium ranking, market share and comparison with the selected market.")
-                position_cols = st.columns(4)
-                with position_cols[0]:
-                    rank_value = (
-                        f"#{int(market_position['rank'])}"
-                        if pd.notna(market_position.get("rank", pd.NA))
-                        else "N/A"
-                    )
-                    render_metric_card("Rank", rank_value, "By premium in selected market")
-                with position_cols[1]:
-                    render_metric_card("Market share", format_percentage(market_position.get("market_share", pd.NA)))
-                with position_cols[2]:
-                    render_metric_card("Company premium", format_millions(market_position.get("company_premium", pd.NA)))
-                with position_cols[3]:
-                    render_metric_card("Market premium", format_millions(market_position.get("market_premium", pd.NA)))
+                render_section_header("Market Position", "Ranking and benchmark view for the selected market context.")
 
                 top_companies = market_position.get("top_companies", pd.DataFrame())
                 if isinstance(top_companies, pd.DataFrame) and not top_companies.empty:
                     top_companies_chart = top_companies.copy()
                     top_companies_chart["premium_mm"] = top_companies_chart["primas"] / 1_000_000
+                    top_companies_chart["premium_display"] = top_companies_chart["primas"].map(format_millions)
+                    if "market_share" in top_companies_chart.columns:
+                        top_companies_chart["market_share_display"] = top_companies_chart["market_share"].map(format_percentage)
+                    else:
+                        total_top_premium = top_companies_chart["primas"].sum()
+                        top_companies_chart["market_share_display"] = top_companies_chart["primas"].map(
+                            lambda value: format_percentage(safe_divide(value, total_top_premium))
+                        )
+                    top_companies_chart["rank"] = range(1, len(top_companies_chart) + 1)
+                    top_companies_chart["company_label"] = top_companies_chart["company_standard"].map(
+                        lambda value: f"{value} (selected)" if value == selected_company else value
+                    )
+                    render_dataframe(
+                        top_companies_chart[
+                            ["rank", "company_label", "premium_display", "market_share_display"]
+                        ],
+                        width="stretch",
+                        hide_index=True,
+                    )
                     fig_top_market = px.bar(
                         top_companies_chart,
-                        x="company_standard",
+                        x="company_label",
                         y="premium_mm",
-                        title=f"Top 5 companies by premium — {market_position.get('latest_year', 'selected year')}",
+                        title=f"Top 5 companies by premium - {market_position.get('latest_year', 'selected year')}",
                         labels={
-                            "company_standard": "Company",
+                            "company_label": "Company",
                             "premium_mm": "Premiums in COP MM",
                         },
                     )
@@ -1697,19 +1704,22 @@ if selected_view == "Company Brief":
                         fix_year_axis(fig_ratio, evolution_chart["year"].unique())
                         fig_ratio.update_yaxes(tickformat=".1%")
                         st.plotly_chart(fig_ratio, width="stretch")
-                    portfolio_chart = portfolio_display.copy()
-                    portfolio_chart["premium_mm"] = portfolio_chart["primas"] / 1_000_000
-                    fig_portfolio_mix = px.bar(
-                        portfolio_chart,
-                        x="line_of_business_standard",
-                        y="premium_mm",
-                        title="Portfolio mix by premium",
-                        labels={
-                            "line_of_business_standard": "Line of business",
-                            "premium_mm": "Premiums in COP MM",
-                        },
-                    )
-                    st.plotly_chart(fig_portfolio_mix, width="stretch")
+                    if str(selected_line).strip().upper() not in {"TODOS", "ALL", "ALL LINES"}:
+                        st.info("Portfolio mix is not shown because a single line of business is selected.")
+                    else:
+                        portfolio_chart = portfolio_display.copy()
+                        portfolio_chart["premium_mm"] = portfolio_chart["primas"] / 1_000_000
+                        fig_portfolio_mix = px.bar(
+                            portfolio_chart,
+                            x="line_of_business_standard",
+                            y="premium_mm",
+                            title="Portfolio mix by premium",
+                            labels={
+                                "line_of_business_standard": "Line of business",
+                                "premium_mm": "Premiums in COP MM",
+                            },
+                        )
+                        st.plotly_chart(fig_portfolio_mix, width="stretch")
 
                 render_section_header("Growth Signals", "Lines with material growth or changing Claims / Premiums.")
                 growth_display = brief.get("growth_signals", pd.DataFrame()).copy()
