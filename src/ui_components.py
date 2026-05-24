@@ -196,6 +196,33 @@ def inject_global_css() -> None:
             font-weight: 700;
         }}
 
+        .status-strip {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: -4px 0 16px 0;
+        }}
+
+        .empty-state {{
+            background: #FFFFFF;
+            border: 1px dashed var(--border);
+            border-radius: 8px;
+            padding: 18px;
+            color: var(--text);
+        }}
+
+        .empty-state-title {{
+            color: var(--navy);
+            font-weight: 760;
+            margin-bottom: 6px;
+        }}
+
+        .empty-state-body {{
+            color: var(--muted);
+            font-size: 0.9rem;
+            margin: 0;
+        }}
+
         .sidebar-label {{
             color: var(--navy);
             font-weight: 760;
@@ -274,6 +301,24 @@ def render_section_header(title: str, subtitle: str | None = None) -> None:
 
 def render_status_pill(label: str) -> None:
     st.markdown(f'<span class="status-pill">{html.escape(label)}</span>', unsafe_allow_html=True)
+
+
+def render_status_strip(items: list[str]) -> None:
+    pills = "".join(f'<span class="status-pill">{html.escape(item)}</span>' for item in items)
+    st.markdown(f'<div class="status-strip">{pills}</div>', unsafe_allow_html=True)
+
+
+def render_empty_state(message: str, next_step: str | None = None) -> None:
+    next_step_html = f" {html.escape(next_step)}" if next_step else ""
+    st.markdown(
+        f"""
+        <div class="empty-state">
+          <div class="empty-state-title">{html.escape(message)}</div>
+          <p class="empty-state-body">{next_step_html}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_sidebar_label(label: str) -> None:

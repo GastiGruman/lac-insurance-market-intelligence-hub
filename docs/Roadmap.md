@@ -148,7 +148,23 @@ Focus:
 
 Scheduled automation remains planned, not live.
 
-## Phase 5 - Controlled External AI Module
+## Phase 5 - Internal Presentation Readiness And Governed Intelligence
+
+Status: in progress.
+
+### Phase 5A - UX / Visual Polish For Internal v1
+
+Status: implemented in this branch.
+
+Focus:
+
+- Make the app feel like a polished internal broker intelligence product.
+- Improve the top header, sidebar wording, module headers and empty states.
+- Keep labels consistent, especially Claims / Premiums versus official technical indicators.
+- Improve Data Status readability and Reports / Export usability.
+- Preserve all existing functionality, calculations and database behavior.
+
+### Phase 5B - Controlled External AI Module
 
 Status: planned.
 

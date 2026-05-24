@@ -57,10 +57,12 @@ from src.exports import (
 from src.ui_components import (
     configure_plotly_theme,
     inject_global_css,
+    render_empty_state,
     render_metric_card,
     render_section_header,
     render_sidebar_label,
     render_status_pill,
+    render_status_strip,
     render_top_header,
 )
 
@@ -808,8 +810,16 @@ run_time = datetime.now()
 
 render_top_header(
     APP_NAME,
-    "Professional market intelligence for reinsurance brokers. Colombia is the first country module in a regional platform built around public market data, technical signals, broker briefs, AI assistance, and news monitoring.",
-    kicker="Regional by design. Colombia-rich where possible. Broker-focused always.",
+    "Colombia MVP - broker-focused market, company and reinsurance intelligence. Explore Fasecolda-based market data, company briefs, reinsurance indicators, internal-data AI-style briefs, curated external intelligence and broker-ready exports.",
+    kicker="Internal broker intelligence product",
+)
+render_status_strip(
+    [
+        "Colombia MVP",
+        "Static demo snapshot",
+        "Internal use / broker preparation",
+        "Source: public Fasecolda data",
+    ]
 )
 
 # ============================================================
@@ -817,11 +827,16 @@ render_top_header(
 # ============================================================
 
 st.sidebar.markdown("## Market Intelligence")
-st.sidebar.caption("Internal broker analytics platform")
+st.sidebar.caption("Colombia Internal v1")
 st.sidebar.divider()
 
-render_sidebar_label("Navigation")
-st.sidebar.caption("Use the top tabs to move between market dashboard, company brief, AI, news, data status and exports.")
+render_sidebar_label("Module groups")
+st.sidebar.caption(
+    "Market Intelligence: overview, companies, lines. "
+    "Broker Preparation: briefs, external intelligence, signals. "
+    "Reinsurance: cession and retention. "
+    "Outputs and Governance: exports, data table, data status."
+)
 
 render_sidebar_label("Market scope")
 
@@ -844,30 +859,38 @@ if not years:
 selected_years = st.sidebar.multiselect(
     "Years",
     years,
-    default=years
+    default=years,
+    help="Use these filters to update all modules."
 )
 
 if not selected_years:
-    warn_and_stop("Please select at least one year to continue.")
+    render_empty_state(
+        "Please select at least one year to continue.",
+        "Use the Years filter in the sidebar to restore the dashboard."
+    )
+    st.stop()
 
 render_sidebar_label("Portfolio filters")
 
 company_options = ["TODAS"] + sorted(country_df["company_standard"].dropna().unique())
 selected_company = st.sidebar.selectbox(
     "Company",
-    company_options
+    company_options,
+    help="Select a company or keep TODAS for the full selected market."
 )
 
 line_options = ["TODOS"] + sorted(country_df["line_of_business_standard"].dropna().unique())
 selected_line = st.sidebar.selectbox(
     "Line of business",
-    line_options
+    line_options,
+    help="Select a line of business or keep TODOS for all lines."
 )
 
 city_options = ["TODAS"] + sorted(country_df["city"].dropna().unique())
 selected_city = st.sidebar.selectbox(
     "City",
-    city_options
+    city_options,
+    help="Use city only when local market detail is needed."
 )
 
 st.sidebar.divider()
@@ -887,10 +910,12 @@ st.sidebar.divider()
 
 render_sidebar_label("Current module")
 st.sidebar.write(f"**{selected_country} country module**")
-st.sidebar.caption("Version: Colombia MVP Demo")
-st.sidebar.caption("Phase: 4F - Operational maintenance readiness")
-st.sidebar.caption("Data update mode: Static demo snapshot plus manual pipeline metadata")
-st.sidebar.caption("Automatic updates: Manual-run pipeline available; scheduling not yet enabled")
+st.sidebar.caption("Version: Colombia Internal v1")
+st.sidebar.caption("Current mode: Streamlit Cloud demo")
+st.sidebar.caption("Data update mode: Static snapshot / manual pipeline")
+st.sidebar.caption("External news: curated/manual")
+st.sidebar.caption("AI Brief: internal-data deterministic mode")
+st.sidebar.caption("Automation: scheduling not yet enabled")
 st.sidebar.caption(f"Database mode: {'Candidate local test' if USE_CANDIDATE_DB else 'Stable demo'}")
 st.sidebar.caption("Data model: Regional Market Core")
 st.sidebar.caption("Primary source: Fasecolda - Ciudades y Ramos")
@@ -912,9 +937,11 @@ if selected_city != "TODAS":
     filtered_df = filtered_df[filtered_df["city"] == selected_city]
 
 if filtered_df.empty:
-    warn_and_stop(
-        "No data available for the selected filters. Please adjust your selection."
+    render_empty_state(
+        "No data available for this selection.",
+        "Try selecting a broader year range, all companies, or all lines of business."
     )
+    st.stop()
 
 premium_df = filtered_df[filtered_df["metric_name"] == "gross_written_premium"]
 claims_df = filtered_df[filtered_df["metric_name"] == "claims"]
@@ -961,7 +988,7 @@ PAGE_OPTIONS = [
     "Line of Business Explorer",
     "Company Brief",
     "AI Brief",
-    "News",
+    "News / External Intelligence",
     "Technical Signals",
     "Reinsurance View",
     "Data Status",
@@ -1007,8 +1034,8 @@ if selected_view == "Market Overview":
         year_summary["value_mm"] = year_summary["metric_value"] / 1_000_000
 
         metric_labels = {
-            "gross_written_premium": "Primas",
-            "claims": "Siniestros"
+            "gross_written_premium": "Premiums",
+            "claims": "Claims"
         }
 
         year_summary["metric_label"] = year_summary["metric_name"].map(metric_labels)
@@ -1019,11 +1046,11 @@ if selected_view == "Market Overview":
             y="value_mm",
             color="metric_label",
             markers=True,
-            title="Evolución de primas y siniestros",
+            title="Premium and claims evolution",
             labels={
-                "year": "Año",
-                "value_mm": "Valor en millones de pesos",
-                "metric_label": "Métrica"
+                "year": "Year",
+                "value_mm": "COP MM",
+                "metric_label": "Metric"
             }
         )
 
@@ -1043,10 +1070,10 @@ if selected_view == "Market Overview":
                 x="year",
                 y="siniestralidad",
                 markers=True,
-                title=f"{CLAIMS_PREMIUM_RATIO_LABEL_ES} anual",
+                title=f"{CLAIMS_PREMIUM_RATIO_LABEL_EN} by year",
                 labels={
-                    "year": "Año",
-                    "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_ES
+                    "year": "Year",
+                    "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_EN
                 }
             )
 
@@ -1059,10 +1086,10 @@ if selected_view == "Market Overview":
                 yearly_lr,
                 x="year",
                 y="premium_growth",
-                title="Crecimiento anual de primas",
+                title="Annual premium growth",
                 labels={
-                    "year": "Año",
-                    "premium_growth": "Crecimiento"
+                    "year": "Year",
+                    "premium_growth": "Growth"
                 }
             )
 
@@ -1097,10 +1124,10 @@ if selected_view == "Market Overview":
                 premium_by_company,
                 x="company_standard",
                 y="value_mm",
-                title="Top 15 compañías por primas",
+                title="Top 15 companies by premium",
                 labels={
-                    "company_standard": "Compañía",
-                    "value_mm": "Primas en millones de pesos"
+                    "company_standard": "Company",
+                    "value_mm": "Premiums in COP MM"
                 }
             )
 
@@ -1121,10 +1148,10 @@ if selected_view == "Market Overview":
                 premium_by_line,
                 x="line_of_business_standard",
                 y="value_mm",
-                title="Top 15 ramos por primas",
+                title="Top 15 lines of business by premium",
                 labels={
-                    "line_of_business_standard": "Ramo",
-                    "value_mm": "Primas en millones de pesos"
+                    "line_of_business_standard": "Line of business",
+                    "value_mm": "Premiums in COP MM"
                 }
             )
 
@@ -1147,9 +1174,9 @@ if selected_view == "Market Overview":
                 market_share_top,
                 x="company_standard",
                 y="market_share",
-                title="Top 15 compañías por participación de mercado",
+                title="Top 15 companies by market share",
                 labels={
-                    "company_standard": "Compañía",
+                    "company_standard": "Company",
                     "market_share": "Market share"
                 }
             )
@@ -1167,11 +1194,17 @@ if selected_view == "Market Overview":
 
 if selected_view == "Company Explorer":
     try:
-        st.subheader("Company Explorer")
-        st.caption("Análisis específico de una aseguradora.")
+        render_section_header(
+            "Company Explorer",
+            "Analyze one insurer's premium evolution, Claims / Premiums behavior and main lines of business.",
+        )
+
 
         if selected_company == "TODAS":
-            st.info("Selecciona una compañía en el filtro lateral para ver el análisis específico.")
+            render_empty_state(
+                "Select a company to open the Company Explorer.",
+                "Use the Company filter in the sidebar to view company-level trends and portfolio mix."
+            )
         else:
             company_df = filtered_df[filtered_df["company_standard"] == selected_company]
 
@@ -1192,9 +1225,9 @@ if selected_view == "Company Explorer":
                 )
 
                 k1, k2, k3 = st.columns(3)
-                k1.metric("Primas último año", format_millions(latest_company_premium))
-                k2.metric("Siniestros último año", format_millions(latest_company_claims))
-                k3.metric(f"{CLAIMS_PREMIUM_RATIO_LABEL_ES} último año", format_percentage(latest_company_lr))
+                k1.metric("Latest-year premiums", format_millions(latest_company_premium))
+                k2.metric("Latest-year claims", format_millions(latest_company_claims))
+                k3.metric(f"Latest-year {CLAIMS_PREMIUM_RATIO_LABEL_EN}", format_percentage(latest_company_lr))
 
             col_a, col_b = st.columns(2)
 
@@ -1204,10 +1237,10 @@ if selected_view == "Company Explorer":
                     x="year",
                     y="primas_mm",
                     markers=True,
-                    title=f"Primas anuales — {selected_company}",
+                    title=f"Annual premiums - {selected_company}",
                     labels={
-                        "year": "Año",
-                        "primas_mm": "Primas en millones de pesos"
+                        "year": "Year",
+                        "primas_mm": "Premiums in COP MM"
                     }
                 )
 
@@ -1220,10 +1253,10 @@ if selected_view == "Company Explorer":
                     x="year",
                     y="siniestralidad",
                     markers=True,
-                    title=f"{CLAIMS_PREMIUM_RATIO_LABEL_ES} anual — {selected_company}",
+                    title=f"Annual {CLAIMS_PREMIUM_RATIO_LABEL_EN} - {selected_company}",
                     labels={
-                        "year": "Año",
-                        "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_ES
+                        "year": "Year",
+                        "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_EN
                     }
                 )
 
@@ -1231,7 +1264,7 @@ if selected_view == "Company Explorer":
                 fig_company_lr.update_yaxes(tickformat=".1%")
                 st.plotly_chart(fig_company_lr, width="stretch")
 
-            st.subheader("Principales ramos de la compañía")
+            render_section_header("Main Lines of Business", "Largest company lines by premium under the selected filters.")
 
             company_premium = company_df[company_df["metric_name"] == "gross_written_premium"]
 
@@ -1249,16 +1282,16 @@ if selected_view == "Company Explorer":
                 company_by_line,
                 x="line_of_business_standard",
                 y="value_mm",
-                title=f"Top ramos por primas — {selected_company}",
+                title=f"Top lines by premium - {selected_company}",
                 labels={
-                    "line_of_business_standard": "Ramo",
-                    "value_mm": "Primas en millones de pesos"
+                    "line_of_business_standard": "Line of business",
+                    "value_mm": "Premiums in COP MM"
                 }
             )
 
             st.plotly_chart(fig_company_line, width="stretch")
 
-            st.subheader("Resumen anual de la compañía")
+            render_section_header("Annual Company Summary", "Premiums, claims, Claims / Premiums and growth by year.")
 
             company_display = make_display_summary(company_summary)
             st.dataframe(
@@ -1274,11 +1307,16 @@ if selected_view == "Company Explorer":
 
 if selected_view == "Line of Business Explorer":
     try:
-        st.subheader("Line of Business Explorer")
-        st.caption("Análisis específico de un ramo.")
+        render_section_header(
+            "Line of Business Explorer",
+            "Review premium scale, Claims / Premiums and company participation for one selected line of business.",
+        )
 
         if selected_line == "TODOS":
-            st.info("Selecciona un ramo en el filtro lateral para ver el análisis específico.")
+            render_empty_state(
+                "Select a line of business to open the Line of Business Explorer.",
+                "Use the Line of business filter in the sidebar or keep Market Overview for all lines."
+            )
         else:
             line_df = filtered_df[filtered_df["line_of_business_standard"] == selected_line]
 
@@ -1295,10 +1333,10 @@ if selected_view == "Line of Business Explorer":
                     x="year",
                     y="primas_mm",
                     markers=True,
-                    title=f"Primas anuales — {selected_line}",
+                    title=f"Annual premiums - {selected_line}",
                     labels={
-                        "year": "Año",
-                        "primas_mm": "Primas en millones de pesos"
+                        "year": "Year",
+                        "primas_mm": "Premiums in COP MM"
                     }
                 )
 
@@ -1311,10 +1349,10 @@ if selected_view == "Line of Business Explorer":
                     x="year",
                     y="siniestralidad",
                     markers=True,
-                    title=f"{CLAIMS_PREMIUM_RATIO_LABEL_ES} anual — {selected_line}",
+                    title=f"Annual {CLAIMS_PREMIUM_RATIO_LABEL_EN} - {selected_line}",
                     labels={
-                        "year": "Año",
-                        "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_ES
+                        "year": "Year",
+                        "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_EN
                     }
                 )
 
@@ -1322,7 +1360,7 @@ if selected_view == "Line of Business Explorer":
                 fig_line_lr.update_yaxes(tickformat=".1%")
                 st.plotly_chart(fig_line_lr, width="stretch")
 
-            st.subheader("Top compañías dentro del ramo")
+            render_section_header("Top Companies Within The Line", "Companies with the largest premium volume in the selected line.")
 
             line_premium = line_df[line_df["metric_name"] == "gross_written_premium"]
 
@@ -1340,16 +1378,16 @@ if selected_view == "Line of Business Explorer":
                 line_by_company,
                 x="company_standard",
                 y="value_mm",
-                title=f"Top compañías por primas — {selected_line}",
+                title=f"Top companies by premium - {selected_line}",
                 labels={
-                    "company_standard": "Compañía",
-                    "value_mm": "Primas en millones de pesos"
+                    "company_standard": "Company",
+                    "value_mm": "Premiums in COP MM"
                 }
             )
 
             st.plotly_chart(fig_line_company, width="stretch")
 
-            st.subheader(f"{CLAIMS_PREMIUM_RATIO_LABEL_ES} por compañía en el ramo")
+            render_section_header(f"{CLAIMS_PREMIUM_RATIO_LABEL_EN} By Company", "Analytical claims-to-premium ratio by company for the selected line.")
 
             line_company_lr = prepare_premium_claims_summary(line_df, ["company_standard"])
             line_company_lr = line_company_lr[line_company_lr["primas"] >= minimum_premium]
@@ -1361,10 +1399,10 @@ if selected_view == "Line of Business Explorer":
                     line_company_lr,
                     x="company_standard",
                     y="siniestralidad",
-                    title=f"{CLAIMS_PREMIUM_RATIO_LABEL_ES} por compañía — {selected_line}",
+                    title=f"{CLAIMS_PREMIUM_RATIO_LABEL_EN} by company - {selected_line}",
                     labels={
-                        "company_standard": "Compañía",
-                        "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_ES
+                        "company_standard": "Company",
+                        "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_EN
                     },
                     hover_data=["primas_mm"]
                 )
@@ -1372,9 +1410,12 @@ if selected_view == "Line of Business Explorer":
                 fig_line_company_lr.update_yaxes(tickformat=".1%")
                 st.plotly_chart(fig_line_company_lr, width="stretch")
             else:
-                st.info("No hay compañías que superen el umbral mínimo de primas seleccionado.")
+                render_empty_state(
+                    "No companies meet the selected minimum premium threshold.",
+                    "Lower the technical signals threshold in the sidebar or broaden the selected period."
+                )
 
-            st.subheader("Resumen anual del ramo")
+            render_section_header("Annual Line Summary", "Premiums, claims, Claims / Premiums and growth by year.")
 
             line_display = make_display_summary(line_summary)
             st.dataframe(
@@ -1398,7 +1439,10 @@ if selected_view == "Company Brief":
         )
 
         if selected_company == "TODAS":
-            st.info("Selecciona una compañía en el filtro lateral para generar el Company Brief.")
+            render_empty_state(
+                "Select a company to generate the Company Brief.",
+                "The brief is designed for company-level broker preparation. Use Market Overview when Company is TODAS."
+            )
         else:
             company_df = filtered_df[filtered_df["company_standard"] == selected_company]
 
@@ -2045,7 +2089,7 @@ if selected_view == "AI Brief":
 # TAB 6 — NEWS
 # ============================================================
 
-if selected_view == "News":
+if selected_view == "News / External Intelligence":
     try:
         render_section_header(
             "Company News & External Intelligence",
@@ -2106,7 +2150,10 @@ if selected_view == "News":
 
         news_items_df = company_news_context["news_items"]
         if news_items_df.empty:
-            st.warning("No curated news available for the selected company yet.")
+            render_empty_state(
+                "No curated news available for the selected company yet.",
+                "Add verified public items to data/external/company_news_curated.csv when external intelligence is ready."
+            )
             st.write("External news ingestion is planned as a future enhancement.")
         else:
             for idx, (_, item) in enumerate(news_items_df.head(10).iterrows(), start=1):
@@ -2179,7 +2226,10 @@ if selected_view == "News":
                     people_df["company_name"].astype(str).str.upper().str.contains(str(news_company).upper(), na=False)
                 ]
             if people_df.empty:
-                st.info("No manually curated leadership data is available for the selected company.")
+                render_empty_state(
+                    "No manually curated leadership data is available for the selected company.",
+                    "Leadership intelligence remains manual-only and should not be inferred or invented."
+                )
             else:
                 st.dataframe(people_df, width="stretch", hide_index=True)
 
@@ -2209,8 +2259,10 @@ if selected_view == "Technical Signals":
     try:
         indicadores_df = load_indicadores_gestion_2025()
 
-        st.subheader("Technical Signals")
-        st.caption("Broker-focused signals for market monitoring and meeting preparation.")
+        render_section_header(
+            "Technical Signals",
+            "Monitor growth, Claims / Premiums pressure, market share movement and reinsurance cession signals.",
+        )
 
         latest_year = max(selected_years) if selected_years else country_df["year"].max()
 
@@ -2229,7 +2281,10 @@ if selected_view == "Technical Signals":
         st.markdown("### Broker-relevant signal table")
 
         if technical_signals_df.empty:
-            st.info("Data not available for technical signals under the selected filters.")
+            render_empty_state(
+                "No technical signals are available for this selection.",
+                "Try a broader year range, all lines of business, or a lower minimum premium threshold."
+            )
         else:
             signal_display = technical_signals_df.copy()
             signal_display["metric_display"] = signal_display.apply(
@@ -2282,7 +2337,7 @@ if selected_view == "Technical Signals":
                 key="technical_signals_download_csv",
             )
 
-        st.markdown("### Compañías con mayor crecimiento anual de primas")
+        render_section_header("Highest Premium Growth Companies", "Companies with the strongest latest-year premium growth above the selected threshold.")
 
         company_year = prepare_premium_claims_summary(filtered_df, ["company_standard", "year"])
         company_year = company_year.sort_values(["company_standard", "year"])
@@ -2303,22 +2358,25 @@ if selected_view == "Technical Signals":
                 company_latest_growth,
                 x="company_standard",
                 y="premium_growth",
-                title=f"Top crecimiento de primas por compañía — {latest_year}",
+                title=f"Top premium growth by company - {latest_year}",
                 labels={
-                    "company_standard": "Compañía",
-                    "premium_growth": "Crecimiento"
+                    "company_standard": "Company",
+                    "premium_growth": "Growth"
                 }
             )
 
             fig_top_growth.update_yaxes(tickformat=".1%")
             st.plotly_chart(fig_top_growth, width="stretch")
         else:
-            st.info("No hay datos suficientes para mostrar crecimiento con el umbral seleccionado.")
+            render_empty_state(
+                "No premium growth signals meet the selected threshold.",
+                "Lower the minimum premium threshold or broaden the selected filters."
+            )
 
         col_a, col_b = st.columns(2)
 
         with col_a:
-            st.markdown(f"### Compañías con mayor {CLAIMS_PREMIUM_RATIO_LABEL_ES.lower()}")
+            render_section_header(f"Highest Company {CLAIMS_PREMIUM_RATIO_LABEL_EN}", "Companies with the highest analytical claims-to-premium ratio above the selected threshold.")
 
             company_lr = prepare_premium_claims_summary(filtered_df, ["company_standard"])
             company_lr = company_lr[company_lr["primas"] >= minimum_premium]
@@ -2330,10 +2388,10 @@ if selected_view == "Technical Signals":
                     company_lr,
                     x="company_standard",
                     y="siniestralidad",
-                    title=f"Top compañías por {CLAIMS_PREMIUM_RATIO_LABEL_ES.lower()}",
+                    title=f"Top companies by {CLAIMS_PREMIUM_RATIO_LABEL_EN}",
                     labels={
-                        "company_standard": "Compañía",
-                        "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_ES
+                        "company_standard": "Company",
+                        "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_EN
                     },
                     hover_data=["primas_mm"]
                 )
@@ -2341,10 +2399,13 @@ if selected_view == "Technical Signals":
                 fig_company_high_lr.update_yaxes(tickformat=".1%")
                 st.plotly_chart(fig_company_high_lr, width="stretch")
             else:
-                st.info("No hay compañías que superen el umbral mínimo de primas seleccionado.")
+                render_empty_state(
+                    "No companies meet the selected minimum premium threshold.",
+                    "Lower the threshold or broaden the selected filters."
+                )
 
         with col_b:
-            st.markdown(f"### Ramos con mayor {CLAIMS_PREMIUM_RATIO_LABEL_ES.lower()}")
+            render_section_header(f"Highest Line {CLAIMS_PREMIUM_RATIO_LABEL_EN}", "Lines of business with the highest analytical claims-to-premium ratio above the selected threshold.")
 
             line_lr = prepare_premium_claims_summary(filtered_df, ["line_of_business_standard"])
             line_lr = line_lr[line_lr["primas"] >= minimum_premium]
@@ -2356,10 +2417,10 @@ if selected_view == "Technical Signals":
                     line_lr,
                     x="line_of_business_standard",
                     y="siniestralidad",
-                    title=f"Top ramos por {CLAIMS_PREMIUM_RATIO_LABEL_ES.lower()}",
+                    title=f"Top lines by {CLAIMS_PREMIUM_RATIO_LABEL_EN}",
                     labels={
-                        "line_of_business_standard": "Ramo",
-                        "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_ES
+                        "line_of_business_standard": "Line of business",
+                        "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_EN
                     },
                     hover_data=["primas_mm"]
                 )
@@ -2367,9 +2428,12 @@ if selected_view == "Technical Signals":
                 fig_line_high_lr.update_yaxes(tickformat=".1%")
                 st.plotly_chart(fig_line_high_lr, width="stretch")
             else:
-                st.info("No hay ramos que superen el umbral mínimo de primas seleccionado.")
+                render_empty_state(
+                    "No lines meet the selected minimum premium threshold.",
+                    "Lower the threshold or broaden the selected filters."
+                )
 
-        st.markdown("### Ramos con mayor crecimiento anual de primas")
+        render_section_header("Highest Premium Growth Lines", "Lines of business with the strongest latest-year premium growth above the selected threshold.")
 
         line_year = prepare_premium_claims_summary(filtered_df, ["line_of_business_standard", "year"])
         line_year = line_year.sort_values(["line_of_business_standard", "year"])
@@ -2390,17 +2454,20 @@ if selected_view == "Technical Signals":
                 line_latest_growth,
                 x="line_of_business_standard",
                 y="premium_growth",
-                title=f"Top crecimiento de primas por ramo — {latest_year}",
+                title=f"Top premium growth by line - {latest_year}",
                 labels={
-                    "line_of_business_standard": "Ramo",
-                    "premium_growth": "Crecimiento"
+                    "line_of_business_standard": "Line of business",
+                    "premium_growth": "Growth"
                 }
             )
 
             fig_line_growth.update_yaxes(tickformat=".1%")
             st.plotly_chart(fig_line_growth, width="stretch")
         else:
-            st.info("No hay datos suficientes para mostrar crecimiento por ramo con el umbral seleccionado.")
+            render_empty_state(
+                "No line growth signals meet the selected threshold.",
+                "Lower the threshold or broaden the selected filters."
+            )
 
         st.warning(
             "Nota: estas señales son automáticas y deben interpretarse considerando tamaño de cartera, "
@@ -2421,10 +2488,9 @@ if selected_view == "Reinsurance View":
         indicadores_validation_flags_df = load_indicadores_gestion_validation_flags()
         pipeline_status = load_pipeline_status()
 
-        st.subheader("Reinsurance View")
-        st.caption(
-            "Vista exploratoria basada en Fasecolda - Indicadores de Gestión 2025. "
-            "Estos datos vienen de una fuente distinta a Ciudades y Ramos y deben validarse metodológicamente antes de usarse como dato final."
+        render_section_header(
+            "Reinsurance View",
+            "Analyze cession, retention and treaty-broker discussion angles using exploratory reinsurance indicators.",
         )
         st.info(
             "Metodología: fuente Fasecolda - Indicadores de Gestión 2025. "
@@ -2435,9 +2501,9 @@ if selected_view == "Reinsurance View":
         )
 
         if indicadores_df.empty:
-            st.warning(
-                "No se encontró la tabla fact_indicadores_gestion_2025. "
-                "Ejecuta primero `python src\\load_indicadores_gestion_to_duckdb.py`."
+            render_empty_state(
+                "Reinsurance indicators are not available in the demo database.",
+                "The module requires fact_indicadores_gestion_2025 before cession and retention views can be shown."
             )
         else:
             exclude_aggregate_lines = st.checkbox(
@@ -2554,9 +2620,9 @@ if selected_view == "Reinsurance View":
                 )
 
             if re_df.empty:
-                st.warning(
-                    "Data not available for the selected reinsurance filters. "
-                    "Please adjust the company or line of business selection."
+                render_empty_state(
+                    "Reinsurance indicators are not available for this selection.",
+                    "Try all companies, all lines of business, or a broader year range."
                 )
                 st.stop()
 
@@ -3145,6 +3211,8 @@ if selected_view == "Data Status":
             st.write("- Candidate database promotion: manual approval only.")
             st.write("- Recommended next step: run controlled monthly updates using the maintenance runbook, then review production scheduling with IT/Data.")
 
+        render_section_header("Current Data Mode", "Static demo snapshot, manual pipeline metadata and source coverage.")
+
         status_all_periods_df = load_market_core_all_periods()
         if status_all_periods_df.empty:
             status_country_df = country_df.copy()
@@ -3239,6 +3307,8 @@ if selected_view == "Data Status":
             )
 
         st.divider()
+
+        render_section_header("Methodology Limitations", "Core caveats users should keep in mind before using outputs formally.")
 
         st.info(
             "Core market analytics use the latest available monthly cut for each year because "
@@ -3441,10 +3511,10 @@ if selected_view == "Data Status":
             st.dataframe(indicadores_flags_status, width="stretch")
 
         st.info(
-            "Current version: Colombia MVP Demo, Phase 3 - automated regulatory ingestion pipeline. "
-            "This version is suitable for limited internal broker testing. It is not yet a corporate-hosted "
+            "Current version: Colombia Internal v1. This version is suitable for limited internal broker "
+            "testing and presentation to a treaty broking team. It is not yet a corporate-hosted "
             "production service. The ingestion pipeline is manual-run only until a scheduling environment "
-            "is approved."
+            "is approved by IT/Data."
         )
     except Exception as exc:
         render_section_error(exc)
@@ -3463,6 +3533,11 @@ if selected_view == "Reports / Export":
         )
 
         latest_available_year = max(selected_years) if selected_years else "N/A"
+        selected_years_label = (
+            f"{min(selected_years)}-{max(selected_years)}"
+            if selected_years and min(selected_years) != max(selected_years)
+            else str(selected_years[0]) if selected_years else "no_year"
+        )
         context_col_a, context_col_b, context_col_c, context_col_d = st.columns(4)
         with context_col_a:
             render_metric_card("Country", selected_country, "Current module")
@@ -3605,12 +3680,15 @@ if selected_view == "Reports / Export":
             st.dataframe(filtered_df.head(1000), width="stretch")
             csv_bytes = dataframe_to_csv_bytes(filtered_df)
             excel_bytes = dataframe_to_excel_bytes(filtered_df, sheet_name="filtered_data")
+            filtered_file_base = sanitize_export_filename(
+                f"{selected_country}_{selected_company}_{selected_line}_{selected_years_label}_filtered_data"
+            )
             data_col_a, data_col_b = st.columns(2)
             with data_col_a:
                 st.download_button(
                     label="Download filtered data CSV",
                     data=csv_bytes,
-                    file_name="market_filtered_data.csv",
+                    file_name=f"{filtered_file_base}.csv",
                     mime="text/csv",
                     key="reports_download_filtered_data_csv",
                 )
@@ -3621,7 +3699,7 @@ if selected_view == "Reports / Export":
                     st.download_button(
                         label="Download filtered data Excel",
                         data=excel_bytes,
-                        file_name="market_filtered_data.xlsx",
+                        file_name=f"{filtered_file_base}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         key="reports_download_filtered_data_excel",
                     )
@@ -3632,7 +3710,7 @@ if selected_view == "Reports / Export":
             else:
                 st.markdown(selected_markdown)
 
-            safe_scope = sanitize_export_filename(f"{selected_company}_{selected_line}_{export_type}")
+            safe_scope = sanitize_export_filename(f"{selected_country}_{selected_company}_{selected_line}_{selected_years_label}_{export_type}")
             markdown_col_a, markdown_col_b = st.columns(2)
             with markdown_col_a:
                 st.download_button(
@@ -3693,25 +3771,27 @@ if selected_view == "Reports / Export":
 
 if selected_view == "Data Table":
     try:
-        st.subheader("Data Table")
-        st.caption("Vista preliminar de los primeros 1,000 registros filtrados.")
+        render_section_header(
+            "Data Table",
+            "Inspect the first 1,000 filtered records for traceability and internal analysis.",
+        )
 
         st.dataframe(
             filtered_df.head(1000),
             width="stretch"
         )
 
-        st.markdown("### Descripción del dataset")
+        render_section_header("Dataset Description", "Core market records loaded into the regional DuckDB model.")
 
         st.write(
             """
-            Este módulo utiliza información pública de Fasecolda sobre primas y siniestros.
-            La información fue consolidada, limpiada y cargada en DuckDB bajo una estructura regional
-            llamada `fact_market_core`.
-        
-            Colombia es el primer módulo operativo del LAC Insurance Market Intelligence Hub.
-            La arquitectura se está preparando para incorporar otros países de Latinoamérica y el Caribe,
-            incluso cuando no todos los países tengan el mismo nivel de detalle disponible.
+            This module uses public Fasecolda data on premiums and claims. The data has been
+            consolidated, normalized and loaded into DuckDB under the regional `fact_market_core`
+            structure.
+
+            Colombia is the first operating country module in the LAC Insurance Market Intelligence Hub.
+            The architecture is designed to support future Latin America and Caribbean expansion, while
+            preserving clear source, period and methodology traceability.
             """
         )
     except Exception as exc:

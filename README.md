@@ -23,9 +23,9 @@ The app helps reinsurance brokers prepare meetings and understand market movemen
 - Source: public Fasecolda data.
 - Deployment: Streamlit Cloud demo branch.
 - Data storage: DuckDB snapshot at `data/database/insurance_market.duckdb`.
-- Current phase: Phase 4F - operational maintenance readiness.
+- Current phase: Phase 5A - UX / visual polish for internal v1.
 
-The demo still runs from a static DuckDB snapshot on Streamlit Cloud. Phase 3 adds a manual-run Fasecolda ingestion pipeline and pipeline status metadata. Phase 4F adds the maintenance runbook, release checklist, operational status, and scheduling plan. Scheduled automatic refreshes are not yet enabled.
+The demo still runs from a static DuckDB snapshot on Streamlit Cloud. Phase 3 adds a manual-run Fasecolda ingestion pipeline and pipeline status metadata. Phase 4F adds the maintenance runbook, release checklist, operational status, and scheduling plan. Phase 5A improves navigation, wording, empty states and presentation quality for the internal v1. Scheduled automatic refreshes are not yet enabled.
 
 ## Main Sources
 
@@ -120,10 +120,11 @@ Current recommendation: keep manual controlled updates until IT/Data approves an
 - Phase 2: Data methodology, traceability, validation notes, mapping documentation, and trust layer.
 - Phase 3: First automated regulatory ingestion pipeline structure, manual source discovery/download/processing/validation flow, and safe DuckDB candidate strategy.
 - Phase 4A-4F: Broker-focused Company Brief, Reinsurance View, internal-data AI Brief, curated/manual external intelligence, broker Reports / Export Center, and operational maintenance readiness.
+- Phase 5A: UX and visual polish for the final internal version.
 
 ## Planned
 
-- Phase 5: Controlled external AI module.
+- Phase 5B: Controlled external AI module.
 - Phase 6: Approved live news provider integration.
 
 ## Current Limitations
