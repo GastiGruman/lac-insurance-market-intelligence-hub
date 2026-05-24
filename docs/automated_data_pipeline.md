@@ -6,6 +6,13 @@ Phase 3 introduces the first automated regulatory ingestion pipeline for the Col
 
 The pipeline is manual-run in this phase. It is not yet a scheduled corporate job.
 
+For operational steps, promotion rules, smoke tests and release checks, use:
+
+- `docs/maintenance_runbook.md`
+- `docs/release_checklist.md`
+- `docs/scheduled_automation_plan.md`
+- `docs/operational_status.md`
+
 ## Source Discovery
 
 Configured official Fasecolda pages:
@@ -201,3 +208,13 @@ The Streamlit app does not run the pipeline automatically. Data Status reads `da
 - The app's current Claims / Premiums ratio is an analytical `claims / gross_written_premium` metric and should not be treated as an official technical loss ratio or combined ratio without confirmed source methodology.
 - The current phase is manual-run only.
 - Scheduling should be implemented later in a controlled corporate environment.
+
+## Maintenance Check
+
+A read-only maintenance check is available:
+
+```powershell
+python -m src.pipeline.maintenance_check
+```
+
+It verifies required folders, the stable demo database, mapping files and selected `.gitignore` protections. It does not download, promote, delete or write data files.

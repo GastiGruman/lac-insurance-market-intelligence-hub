@@ -23,9 +23,9 @@ The app helps reinsurance brokers prepare meetings and understand market movemen
 - Source: public Fasecolda data.
 - Deployment: Streamlit Cloud demo branch.
 - Data storage: DuckDB snapshot at `data/database/insurance_market.duckdb`.
-- Current phase: Phase 4E - broker reports / export center.
+- Current phase: Phase 4F - operational maintenance readiness.
 
-The demo still runs from a static DuckDB snapshot on Streamlit Cloud. Phase 3 adds a manual-run Fasecolda ingestion pipeline and pipeline status metadata. Scheduled automatic refreshes are not yet enabled.
+The demo still runs from a static DuckDB snapshot on Streamlit Cloud. Phase 3 adds a manual-run Fasecolda ingestion pipeline and pipeline status metadata. Phase 4F adds the maintenance runbook, release checklist, operational status, and scheduling plan. Scheduled automatic refreshes are not yet enabled.
 
 ## Main Sources
 
@@ -61,6 +61,43 @@ Use:
 
 The demo branch intentionally includes only the small DuckDB demo snapshot required for the deployed app. Raw data, processed data, outputs, secrets, and virtual environments are excluded.
 
+## Operational Maintenance
+
+Run the app locally:
+
+```powershell
+python -m streamlit run app\streamlit_app.py
+```
+
+Run the manual Fasecolda pipeline:
+
+```powershell
+python -m src.pipeline.run_colombia_pipeline --mode discover
+python -m src.pipeline.run_colombia_pipeline --mode validate
+python -m src.pipeline.run_colombia_pipeline --mode update-db
+```
+
+Review a candidate database before any promotion:
+
+```powershell
+python -m src.pipeline.compare_candidate_database
+```
+
+Run the read-only maintenance check:
+
+```powershell
+python -m src.pipeline.maintenance_check
+```
+
+Operational references:
+
+- `docs/maintenance_runbook.md`
+- `docs/release_checklist.md`
+- `docs/operational_status.md`
+- `docs/scheduled_automation_plan.md`
+
+Current recommendation: keep manual controlled updates until IT/Data approves an internal server, VM, or managed scheduler.
+
 ## Documentation
 
 - `docs/data_dictionary.md`
@@ -71,6 +108,10 @@ The demo branch intentionally includes only the small DuckDB demo snapshot requi
 - `docs/automated_data_pipeline.md`
 - `docs/news_module.md`
 - `docs/reports_export_module.md`
+- `docs/maintenance_runbook.md`
+- `docs/release_checklist.md`
+- `docs/operational_status.md`
+- `docs/scheduled_automation_plan.md`
 - `docs/project_status.md`
 
 ## Completed
@@ -78,7 +119,7 @@ The demo branch intentionally includes only the small DuckDB demo snapshot requi
 - Phase 1: Colombia MVP stability for Streamlit Cloud demo testing.
 - Phase 2: Data methodology, traceability, validation notes, mapping documentation, and trust layer.
 - Phase 3: First automated regulatory ingestion pipeline structure, manual source discovery/download/processing/validation flow, and safe DuckDB candidate strategy.
-- Phase 4A-4E: Broker-focused Company Brief, Reinsurance View, internal-data AI Brief, curated/manual external intelligence, and broker Reports / Export Center.
+- Phase 4A-4F: Broker-focused Company Brief, Reinsurance View, internal-data AI Brief, curated/manual external intelligence, broker Reports / Export Center, and operational maintenance readiness.
 
 ## Planned
 

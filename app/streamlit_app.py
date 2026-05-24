@@ -888,7 +888,7 @@ st.sidebar.divider()
 render_sidebar_label("Current module")
 st.sidebar.write(f"**{selected_country} country module**")
 st.sidebar.caption("Version: Colombia MVP Demo")
-st.sidebar.caption("Phase: 4E - Broker reports and export center")
+st.sidebar.caption("Phase: 4F - Operational maintenance readiness")
 st.sidebar.caption("Data update mode: Static demo snapshot plus manual pipeline metadata")
 st.sidebar.caption("Automatic updates: Manual-run pipeline available; scheduling not yet enabled")
 st.sidebar.caption(f"Database mode: {'Candidate local test' if USE_CANDIDATE_DB else 'Stable demo'}")
@@ -3137,6 +3137,13 @@ if selected_view == "Data Status":
             "Phase 3 adds a manual-run Fasecolda ingestion pipeline, but the app does not execute "
             "that pipeline automatically on launch. Scheduled automation is a future deployment step."
         )
+
+        with st.expander("Operational maintenance status", expanded=False):
+            st.write("- Data update mode: static demo snapshot.")
+            st.write("- Pipeline mode: manual controlled run from CMD or PowerShell.")
+            st.write("- Automatic updates: not enabled.")
+            st.write("- Candidate database promotion: manual approval only.")
+            st.write("- Recommended next step: run controlled monthly updates using the maintenance runbook, then review production scheduling with IT/Data.")
 
         status_all_periods_df = load_market_core_all_periods()
         if status_all_periods_df.empty:

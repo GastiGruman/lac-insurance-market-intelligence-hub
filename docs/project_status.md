@@ -2,9 +2,9 @@
 
 ## Current Phase
 
-**Phase 4E - Broker Reports / Export Center**
+**Phase 4F - Operational Maintenance Readiness**
 
-The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal broker testing. The current focus is improving practical broker exports while preserving the stable demo database, advanced Company Brief, advanced Reinsurance View, internal-data AI Brief, curated/manual News module, and the manual Phase 3 pipeline.
+The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal broker testing. The current focus is making recurring maintenance, manual data refresh, candidate database review, release checks, and future scheduling handoff clear and safe while preserving the stable demo database and all broker-facing modules.
 
 ## Design Principle
 
@@ -26,9 +26,9 @@ The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal brok
 |---|---|---|---|
 | Phase 1 | Colombia MVP stability | Completed | Streamlit Cloud demo stabilized with defensive filters, lazy navigation, and friendly warnings. |
 | Phase 2 | Colombia reliable / trust layer | Completed in this branch | Data dictionary, methodology, validation notes, mapping methodology, and source-to-module traceability added or updated. |
-| Phase 3 | Automatic Fasecolda data ingestion pipeline | In progress in this branch | Manual-run pipeline structure, fallback source registry, metadata, validations, and safe DuckDB candidate strategy. |
-| Phase 3B | Candidate database review and promotion readiness | In progress in this branch | Compares candidate DuckDB against stable demo DB and blocks promotion unless review recommends it. |
-| Phase 4 | Broker-focused refinements | In progress | Phase 4A improved Company Brief; Phase 4B improved Reinsurance View; Phase 4C connects AI Brief to internal structured data; Phase 4D adds curated/manual external intelligence; Phase 4E adds broker reports and exports. |
+| Phase 3A | Manual Fasecolda ingestion pipeline | Completed in this branch | Manual-run pipeline structure, fallback source registry, metadata, validations, and safe DuckDB candidate strategy. |
+| Phase 3B | Candidate database review and promotion readiness | Completed in this branch | Compares candidate DuckDB against stable demo DB and blocks promotion unless review recommends it. |
+| Phase 4 | Broker-focused refinements | In progress | Phase 4A improved Company Brief; Phase 4B improved Reinsurance View; Phase 4C connects AI Brief to internal structured data; Phase 4D adds curated/manual external intelligence; Phase 4E adds broker reports and exports; Phase 4F adds operational readiness. |
 | Phase 5 | Controlled external AI module | Planned | Future LLM outputs must be grounded in structured data and approved sources. |
 | Phase 6 | Live company news module | Planned | Future source-based live news retrieval with approved provider configuration. |
 
@@ -119,6 +119,8 @@ Add a separate official technical indicator module using Fasecolda - Indicadores
 - Broker review of the internal-data AI Brief workflow for meeting preparation.
 - Broker review of curated/manual News and External Intelligence workflow.
 - Broker review of copy-ready Reports / Export outputs.
+- Controlled monthly maintenance dry run using the maintenance runbook.
+- IT/Data discussion about future scheduling and corporate hosting.
 
 ## Not Yet Ready For
 
@@ -201,3 +203,16 @@ Reports / Export has been upgraded into a practical export center for broker wor
 - Additional annual, company and reinsurance CSV summaries.
 
 Exports are generated in memory and include methodology notes. PDF and actual PowerPoint generation remain future enhancements.
+
+## Phase 4F - Operational Maintenance Readiness
+
+Operational readiness has been added to support controlled maintenance and future handoff to IT/Data. This phase adds:
+
+- Maintenance runbook for routine updates.
+- Scheduled automation plan with manual, local scheduler, internal server, GitHub Actions and managed cloud options.
+- Release checklist for safe commits and Streamlit Cloud reboots.
+- Operational status document.
+- Read-only maintenance check script.
+- Clearer Data Status wording for manual pipeline mode, static demo snapshot, and manual candidate promotion.
+
+No scheduler has been activated. No external service, credential, or secret has been added. The current demo database remains the stable static snapshot unless a future candidate promotion is explicitly approved.

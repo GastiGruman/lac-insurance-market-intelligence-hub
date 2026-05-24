@@ -133,6 +133,21 @@ Focus:
 - Include methodology footers in markdown exports.
 - Leave PDF and actual PowerPoint generation to future dependency and template review.
 
+### Phase 4F - Operational Maintenance Readiness
+
+Status: implemented in this branch.
+
+Focus:
+
+- Document the controlled maintenance workflow for manual Fasecolda updates.
+- Add release and smoke-test checklists.
+- Document future scheduling options without activating a scheduler.
+- Clarify database promotion rules and rollback approach.
+- Provide a read-only maintenance check for required paths, database presence and Git ignore protections.
+- Prepare the project for IT/Data handoff while keeping the Streamlit Cloud demo stable.
+
+Scheduled automation remains planned, not live.
+
 ## Phase 5 - Controlled External AI Module
 
 Status: planned.
