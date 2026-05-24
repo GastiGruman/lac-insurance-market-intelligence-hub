@@ -42,6 +42,18 @@ from src.news import (
     load_curated_company_news,
     load_key_people_template,
 )
+from src.exports import (
+    build_ai_brief_markdown as build_export_ai_brief_markdown,
+    build_broker_one_pager_markdown as build_export_broker_one_pager_markdown,
+    build_company_brief_markdown as build_export_company_brief_markdown,
+    build_export_metadata,
+    build_market_summary_markdown as build_export_market_summary_markdown,
+    build_ppt_ready_bullets,
+    build_reinsurance_summary_markdown as build_export_reinsurance_summary_markdown,
+    dataframe_to_csv_bytes,
+    dataframe_to_excel_bytes,
+    sanitize_export_filename,
+)
 from src.ui_components import (
     configure_plotly_theme,
     inject_global_css,
@@ -876,7 +888,7 @@ st.sidebar.divider()
 render_sidebar_label("Current module")
 st.sidebar.write(f"**{selected_country} country module**")
 st.sidebar.caption("Version: Colombia MVP Demo")
-st.sidebar.caption("Phase: 4D - Curated external intelligence")
+st.sidebar.caption("Phase: 4E - Broker reports and export center")
 st.sidebar.caption("Data update mode: Static demo snapshot plus manual pipeline metadata")
 st.sidebar.caption("Automatic updates: Manual-run pipeline available; scheduling not yet enabled")
 st.sidebar.caption(f"Database mode: {'Candidate local test' if USE_CANDIDATE_DB else 'Stable demo'}")
@@ -3438,146 +3450,232 @@ if selected_view == "Reports / Export":
     try:
         indicadores_df = load_indicadores_gestion_2025()
 
-        st.subheader("Reports / Export")
-        st.caption("Exportables iniciales para análisis y preparación de reuniones.")
+        render_section_header(
+            "Export Center",
+            "Copy-ready broker outputs and lightweight data exports for meetings, emails, notes and slide preparation.",
+        )
 
-        st.markdown("### Data exports")
+        latest_available_year = max(selected_years) if selected_years else "N/A"
+        context_col_a, context_col_b, context_col_c, context_col_d = st.columns(4)
+        with context_col_a:
+            render_metric_card("Country", selected_country, "Current module")
+        with context_col_b:
+            render_metric_card("Company", selected_company, "Selected filter")
+        with context_col_c:
+            render_metric_card("Line", "All lines" if selected_line == "TODOS" else selected_line, "Selected filter")
+        with context_col_d:
+            render_metric_card("Latest year", str(latest_available_year), "Selected years")
 
-        csv = filtered_df.to_csv(index=False, encoding="utf-8-sig")
+        export_metadata = build_export_metadata(
+            selected_country,
+            selected_company,
+            selected_line,
+            selected_years,
+            generated_at=run_time,
+        )
 
-        export_col_a, export_col_b = st.columns(2)
+        export_type = st.selectbox(
+            "Export type",
+            [
+                "Company Brief",
+                "AI Brief",
+                "Reinsurance Summary",
+                "Market Summary",
+                "Broker One-Pager",
+                "PPT-Ready Bullets",
+                "Filtered Data",
+            ],
+            key="reports_export_type",
+        )
 
-        with export_col_a:
-            st.download_button(
-                label="Download filtered data CSV",
-                data=csv,
-                file_name="lac_insurance_market_filtered_data.csv",
-                mime="text/csv",
-                key="reports_download_filtered_data_csv",
-            )
-
-        with export_col_b:
-            st.download_button(
-                label="Download annual summary CSV",
-                data=annual_summary_csv(filtered_df),
-                file_name="annual_market_summary.csv",
-                mime="text/csv",
-                key="reports_download_annual_summary_csv",
-            )
-
-        export_col_c, export_col_d = st.columns(2)
-
-        with export_col_c:
-            st.download_button(
-                label="Download company summary CSV",
-                data=company_summary_csv(filtered_df),
-                file_name="company_summary.csv",
-                mime="text/csv",
-                key="reports_download_company_summary_csv",
-            )
-
-        with export_col_d:
-            st.download_button(
-                label="Download reinsurance summary CSV",
-                data=reinsurance_summary_csv(indicadores_df, selected_country),
-                file_name="reinsurance_summary.csv",
-                mime="text/csv",
-                key="reports_download_reinsurance_summary_csv",
-            )
-
-        st.markdown("### Brief exports")
-
-        if selected_company == "TODAS":
-            st.info("Select a company in the sidebar to export company brief and one-pager files.")
-        else:
-            report_company_df = filtered_df[filtered_df["company_standard"] == selected_company]
-            report_market_reference_df = country_df[country_df["year"].isin(selected_years)]
-
-            if selected_line != "TODOS":
-                report_market_reference_df = report_market_reference_df[
-                    report_market_reference_df["line_of_business_standard"] == selected_line
-                ]
-
-            if selected_city != "TODAS":
-                report_market_reference_df = report_market_reference_df[
-                    report_market_reference_df["city"] == selected_city
-                ]
-
+        report_mapped_company = None
+        if selected_company != "TODAS":
             report_mapped_company = map_company_using_mapping_table(
                 selected_company,
                 target_source="FASECOLDA - INDICADORES DE GESTION",
                 country=selected_country,
             )
-            report_mapped_line = None
-            if selected_line != "TODOS":
-                report_mapped_line = map_lob_using_mapping_table(
-                    selected_line,
-                    target_source="FASECOLDA - INDICADORES DE GESTION",
-                    country=selected_country,
-                )
-
-            try:
-                report_reinsurance_wide = build_reinsurance_wide(
-                    indicadores_df,
-                    selected_country,
-                    company=report_mapped_company,
-                    line=report_mapped_line,
-                )
-                report_brief = build_company_brief(
-                    country=selected_country,
-                    company=selected_company,
-                    selected_line=selected_line,
-                    selected_years=selected_years,
-                    company_df=report_company_df,
-                    market_df=report_market_reference_df,
-                    reinsurance_summary=summarize_reinsurance(report_reinsurance_wide),
-                    minimum_premium=minimum_premium,
-                )
-            except Exception as exc:
-                render_section_error(exc)
-                st.stop()
-            report_one_pager_markdown = render_one_pager_markdown(
-                report_brief,
-                company=selected_company,
+        report_mapped_line = None
+        if selected_line != "TODOS":
+            report_mapped_line = map_lob_using_mapping_table(
+                selected_line,
+                target_source="FASECOLDA - INDICADORES DE GESTION",
                 country=selected_country,
             )
-            report_one_pager_html = render_markdown_as_html(
-                report_one_pager_markdown,
-                title=f"{selected_company} one-pager",
+
+        report_reinsurance_wide = build_reinsurance_wide(
+            indicadores_df,
+            selected_country,
+            company=report_mapped_company if selected_company != "TODAS" else None,
+            line=report_mapped_line if selected_line != "TODOS" else None,
+        )
+        report_market_reinsurance_wide = build_reinsurance_wide(
+            indicadores_df,
+            selected_country,
+            line=report_mapped_line if selected_line != "TODOS" else None,
+        )
+        if not report_reinsurance_wide.empty and "year" in report_reinsurance_wide.columns:
+            report_reinsurance_wide = report_reinsurance_wide[
+                report_reinsurance_wide["year"].isin(selected_years)
+            ].copy()
+        if not report_market_reinsurance_wide.empty and "year" in report_market_reinsurance_wide.columns:
+            report_market_reinsurance_wide = report_market_reinsurance_wide[
+                report_market_reinsurance_wide["year"].isin(selected_years)
+            ].copy()
+
+        report_reinsurance_context = build_reinsurance_view_context(
+            selected_wide=report_reinsurance_wide,
+            market_wide=report_market_reinsurance_wide,
+            selected_company=selected_company,
+            selected_line=selected_line,
+            minimum_premium=minimum_premium,
+        )
+
+        report_company_brief = None
+        if selected_company != "TODAS":
+            report_company_df = filtered_df[filtered_df["company_standard"] == selected_company].copy()
+            report_market_reference_df = country_df[country_df["year"].isin(selected_years)].copy()
+            if selected_line != "TODOS":
+                report_market_reference_df = report_market_reference_df[
+                    report_market_reference_df["line_of_business_standard"] == selected_line
+                ].copy()
+            if selected_city != "TODAS":
+                report_market_reference_df = report_market_reference_df[
+                    report_market_reference_df["city"] == selected_city
+                ].copy()
+            report_company_brief = build_company_brief(
+                country=selected_country,
+                company=selected_company,
+                selected_line=selected_line,
+                selected_years=selected_years,
+                company_df=report_company_df,
+                market_df=report_market_reference_df,
+                reinsurance_summary=summarize_reinsurance(report_reinsurance_wide),
+                minimum_premium=minimum_premium,
+                reinsurance_wide=report_reinsurance_wide,
             )
 
-            brief_col_a, brief_col_b, brief_col_c = st.columns(3)
+        report_ai_context = build_ai_brief_context(
+            market_df=country_df,
+            selected_country=selected_country,
+            selected_company=selected_company,
+            selected_lob=selected_line,
+            selected_years=selected_years,
+            meeting_purpose="Broker report export",
+            brief_type="Pre-meeting company brief",
+            indicadores_df=indicadores_df,
+            mapped_company=report_mapped_company,
+            mapped_line=report_mapped_line,
+            minimum_premium=minimum_premium,
+            data_status={
+                "database_mode": "Candidate local test" if USE_CANDIDATE_DB else "Stable demo",
+                "data_update_mode": "Static demo snapshot plus manual pipeline metadata",
+            },
+        )
+        report_ai_markdown = generate_ai_brief_from_context(report_ai_context)
 
-            with brief_col_a:
+        markdown_exports = {
+            "Company Brief": build_export_company_brief_markdown(report_company_brief, export_metadata),
+            "AI Brief": build_export_ai_brief_markdown(report_ai_markdown, export_metadata),
+            "Reinsurance Summary": build_export_reinsurance_summary_markdown(report_reinsurance_context, export_metadata),
+            "Market Summary": build_export_market_summary_markdown(filtered_df, export_metadata, minimum_premium),
+            "Broker One-Pager": build_export_broker_one_pager_markdown(
+                report_company_brief,
+                report_ai_markdown,
+                report_reinsurance_context,
+                export_metadata,
+            ),
+            "PPT-Ready Bullets": build_ppt_ready_bullets(
+                report_company_brief,
+                report_reinsurance_context,
+                export_metadata,
+            ),
+        }
+
+        render_section_header("Preview", "Review the selected export before downloading or copying.")
+
+        if export_type == "Filtered Data":
+            st.dataframe(filtered_df.head(1000), width="stretch")
+            csv_bytes = dataframe_to_csv_bytes(filtered_df)
+            excel_bytes = dataframe_to_excel_bytes(filtered_df, sheet_name="filtered_data")
+            data_col_a, data_col_b = st.columns(2)
+            with data_col_a:
                 st.download_button(
-                    label="Download company brief markdown",
-                    data=report_brief["markdown"],
-                    file_name=f"{selected_company.lower().replace(' ', '_')}_company_brief.md",
-                    mime="text/markdown",
-                    key="reports_download_company_brief_md",
+                    label="Download filtered data CSV",
+                    data=csv_bytes,
+                    file_name="market_filtered_data.csv",
+                    mime="text/csv",
+                    key="reports_download_filtered_data_csv",
                 )
+            with data_col_b:
+                if excel_bytes is None:
+                    st.info("Excel export is not available in this environment. CSV export is available.")
+                else:
+                    st.download_button(
+                        label="Download filtered data Excel",
+                        data=excel_bytes,
+                        file_name="market_filtered_data.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="reports_download_filtered_data_excel",
+                    )
+        else:
+            selected_markdown = markdown_exports.get(export_type, "Data not available.")
+            if export_type == "PPT-Ready Bullets":
+                st.code(selected_markdown, language="markdown")
+            else:
+                st.markdown(selected_markdown)
 
-            with brief_col_b:
+            safe_scope = sanitize_export_filename(f"{selected_company}_{selected_line}_{export_type}")
+            markdown_col_a, markdown_col_b = st.columns(2)
+            with markdown_col_a:
                 st.download_button(
-                    label="Download one-pager markdown",
-                    data=report_one_pager_markdown,
-                    file_name=f"{selected_company.lower().replace(' ', '_')}_one_pager.md",
+                    label=f"Download {export_type} markdown",
+                    data=selected_markdown.encode("utf-8"),
+                    file_name=f"{safe_scope}.md",
                     mime="text/markdown",
-                    key="reports_download_one_pager_md",
+                    key=f"reports_download_{sanitize_export_filename(export_type)}_md",
                 )
-
-            with brief_col_c:
+            with markdown_col_b:
+                html_export = render_markdown_as_html(selected_markdown, title=export_type)
                 st.download_button(
-                    label="Download one-pager HTML",
-                    data=report_one_pager_html,
-                    file_name=f"{selected_company.lower().replace(' ', '_')}_one_pager.html",
+                    label=f"Download {export_type} HTML",
+                    data=html_export.encode("utf-8"),
+                    file_name=f"{safe_scope}.html",
                     mime="text/html",
-                    key="reports_download_one_pager_html",
+                    key=f"reports_download_{sanitize_export_filename(export_type)}_html",
+                )
+
+        with st.expander("Additional CSV exports", expanded=False):
+            csv_col_a, csv_col_b, csv_col_c = st.columns(3)
+            with csv_col_a:
+                st.download_button(
+                    label="Annual summary CSV",
+                    data=annual_summary_csv(filtered_df),
+                    file_name="annual_market_summary.csv",
+                    mime="text/csv",
+                    key="reports_download_annual_summary_csv",
+                )
+            with csv_col_b:
+                st.download_button(
+                    label="Company summary CSV",
+                    data=company_summary_csv(filtered_df),
+                    file_name="company_summary.csv",
+                    mime="text/csv",
+                    key="reports_download_company_summary_csv",
+                )
+            with csv_col_c:
+                st.download_button(
+                    label="Reinsurance summary CSV",
+                    data=reinsurance_summary_csv(indicadores_df, selected_country),
+                    file_name="reinsurance_summary.csv",
+                    mime="text/csv",
+                    key="reports_download_reinsurance_summary_csv",
                 )
 
         st.warning(
-            "Export note: markdown and HTML exports are available first. PDF or PowerPoint can be added later "
-            "with optional libraries, without blocking the app."
+            "Export methodology: Claims / Premiums is analytical and not necessarily official technical "
+            "siniestralidad or combined ratio. Reinsurance indicators are exploratory. External intelligence "
+            "is curated/manual and may be empty. Validate figures before formal client or market presentations."
         )
     except Exception as exc:
         render_section_error(exc)

@@ -13,6 +13,7 @@ The app helps reinsurance brokers prepare meetings and understand market movemen
 - Exploratory reinsurance indicators.
 - Internal-data AI Brief.
 - Curated/manual company news and external intelligence.
+- Broker-ready reports and lightweight exports.
 - Data status, traceability, and validation visibility.
 - Filtered exports for internal analysis.
 
@@ -22,7 +23,7 @@ The app helps reinsurance brokers prepare meetings and understand market movemen
 - Source: public Fasecolda data.
 - Deployment: Streamlit Cloud demo branch.
 - Data storage: DuckDB snapshot at `data/database/insurance_market.duckdb`.
-- Current phase: Phase 4D - curated company news / external intelligence.
+- Current phase: Phase 4E - broker reports / export center.
 
 The demo still runs from a static DuckDB snapshot on Streamlit Cloud. Phase 3 adds a manual-run Fasecolda ingestion pipeline and pipeline status metadata. Scheduled automatic refreshes are not yet enabled.
 
@@ -68,6 +69,8 @@ The demo branch intentionally includes only the small DuckDB demo snapshot requi
 - `docs/mapping_methodology.md`
 - `docs/data_validation_notes.md`
 - `docs/automated_data_pipeline.md`
+- `docs/news_module.md`
+- `docs/reports_export_module.md`
 - `docs/project_status.md`
 
 ## Completed
@@ -75,7 +78,7 @@ The demo branch intentionally includes only the small DuckDB demo snapshot requi
 - Phase 1: Colombia MVP stability for Streamlit Cloud demo testing.
 - Phase 2: Data methodology, traceability, validation notes, mapping documentation, and trust layer.
 - Phase 3: First automated regulatory ingestion pipeline structure, manual source discovery/download/processing/validation flow, and safe DuckDB candidate strategy.
-- Phase 4A-4D: Broker-focused Company Brief, Reinsurance View, internal-data AI Brief, and curated/manual external intelligence.
+- Phase 4A-4E: Broker-focused Company Brief, Reinsurance View, internal-data AI Brief, curated/manual external intelligence, and broker Reports / Export Center.
 
 ## Planned
 

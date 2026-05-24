@@ -121,6 +121,18 @@ Focus:
 - Add key people / leadership template without inventing names.
 - Keep live news retrieval disabled by default and reserve it for future approved providers.
 
+### Phase 4E - Broker Reports / Export Center
+
+Status: implemented in this branch.
+
+Focus:
+
+- Add practical copy-ready exports for broker workflows.
+- Support Company Brief, AI Brief, Reinsurance Summary, Market Summary, Broker One-Pager and PPT-ready bullets.
+- Add filtered CSV and optional in-memory Excel export.
+- Include methodology footers in markdown exports.
+- Leave PDF and actual PowerPoint generation to future dependency and template review.
+
 ## Phase 5 - Controlled External AI Module
 
 Status: planned.

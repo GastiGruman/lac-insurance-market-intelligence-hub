@@ -185,6 +185,12 @@ External intelligence is not the same as Fasecolda structured market data. News 
 
 Key people and leadership information is not searched automatically and must not be invented. It should only be displayed when manually curated from an appropriate source.
 
+## Reports / Export Methodology
+
+Reports and exports are generated from the same filtered data and structured contexts shown in the app. Markdown and HTML exports are designed for broker meeting preparation, email drafts, Teams notes and slide drafting.
+
+Exports include methodology notes because they are not formal actuarial, accounting, legal or financial reports. CSV and Excel downloads reflect the current filtered demo snapshot. PDF and actual PowerPoint generation are future enhancements.
+
 ## Inappropriate Uses
 
 Do not use the app as:
