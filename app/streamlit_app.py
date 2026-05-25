@@ -997,6 +997,9 @@ if filtered_df.empty:
     )
     st.stop()
 
+premium_df = filtered_df[filtered_df["metric_name"] == "gross_written_premium"]
+claims_df = filtered_df[filtered_df["metric_name"] == "claims"]
+
 # ============================================================
 # TAB 1 — MARKET OVERVIEW
 # ============================================================
