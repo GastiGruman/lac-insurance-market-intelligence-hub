@@ -1,6 +1,6 @@
 # LAC Insurance Market Intelligence Hub - Colombia MVP
 
-Internal Streamlit MVP for insurance market intelligence, starting with Colombia and public Fasecolda data.
+Internal Streamlit MVP for insurance market intelligence, starting with Colombia. The Colombia data foundation is being migrated to the official SFC Formato 290 dataset from Datos Abiertos Colombia.
 
 ## What The App Does
 
@@ -20,7 +20,8 @@ The app helps reinsurance brokers prepare meetings and understand market movemen
 ## Current Scope
 
 - Country: Colombia.
-- Source: public Fasecolda data.
+- Target source of truth: Datos Abiertos Colombia / Superintendencia Financiera de Colombia Formato 290, dataset `e967-4a8r`.
+- Legacy fallback source: public Fasecolda snapshot until Formato 290 ingestion has been run and validated.
 - Deployment: Streamlit Cloud demo branch.
 - Data storage: DuckDB snapshot at `data/database/insurance_market.duckdb`.
 - Current phase: Phase 5A - UX / visual polish for internal v1.
@@ -29,7 +30,8 @@ The demo still runs from a static DuckDB snapshot on Streamlit Cloud. Phase 3 ad
 
 ## Main Sources
 
-- **Fasecolda - Ciudades y Ramos**: core source for premiums, claims, companies, lines of business, cities, and annual trends.
+- **SFC Formato 290 / Datos Abiertos Colombia (`e967-4a8r`)**: target official source for Colombia premiums, claims, commissions, technical result and ramo-level market analytics.
+- **Fasecolda - Ciudades y Ramos**: legacy fallback snapshot for premiums, claims, companies, lines of business, cities, and annual trends until Formato 290 is ingested and reconciled.
 - **Fasecolda - Indicadores de Gestion 2025**: complementary exploratory source for reinsurance indicators such as retained premium, ceded premium, cession ratio, retention ratio, and paid claims.
 
 ## Important Methodology Notes
@@ -77,6 +79,19 @@ python -m src.pipeline.run_colombia_pipeline --mode validate
 python -m src.pipeline.run_colombia_pipeline --mode update-db
 ```
 
+Run the official SFC Formato 290 update:
+
+```powershell
+cd "C:\Users\PC\Documents\colombia_insurance_market_dashboard - copia"
+python scripts\update_formato_290.py
+```
+
+Run Formato 290 reconciliation after adding official reference values:
+
+```powershell
+python scripts\reconcile_formato_290.py
+```
+
 Review a candidate database before any promotion:
 
 ```powershell
@@ -101,6 +116,10 @@ Current recommendation: keep manual controlled updates until IT/Data approves an
 ## Documentation
 
 - `docs/data_dictionary.md`
+- `docs/data_sources.md`
+- `docs/formato_290_pipeline.md`
+- `docs/metric_methodology.md`
+- `docs/reconciliation_process.md`
 - `docs/methodology.md`
 - `docs/source_to_module_matrix.md`
 - `docs/mapping_methodology.md`

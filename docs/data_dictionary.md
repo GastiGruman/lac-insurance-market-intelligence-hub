@@ -4,6 +4,10 @@ This dictionary explains the business meaning, source, unit, and use of the main
 
 ## Core Market Fields
 
+### Formato 290 migration note
+
+The target Colombia source of truth is now SFC Formato 290 from Datos Abiertos Colombia dataset `e967-4a8r`. The current app can still fall back to the legacy Fasecolda snapshot if the Formato 290 tables are not present. Once `python scripts/update_formato_290.py` runs successfully, Formato 290 tables such as `clean_formato_290`, `mart_formato_290_dashboard_metrics`, and `fact_market_core_formato_290` are available in DuckDB.
+
 | Field name | Business meaning | Source | Unit | Calculation / transformation | Used in app modules | Notes / limitations |
 |---|---|---|---|---|---|---|
 | `country` | Country module represented by the record. | App data model | Text | Standardized during loading. | All modules | Current demo is Colombia only. |
@@ -20,9 +24,9 @@ This dictionary explains the business meaning, source, unit, and use of the main
 | `lob_group` | Business grouping for lines, including aggregate flags. | `dim_line_of_business_mapping` | Text | Maintained in mapping table. | Reinsurance View, aggregate exclusion | `AGGREGATE` lines can duplicate individual lines. |
 | `city` | City-level market geography. | Fasecolda - Ciudades y Ramos | Text | Extracted from source. | Filters, market views | Reinsurance source does not include city-level detail. |
 | `department` | Department-level geography, if available in future data. | Not currently used | Text | Not currently populated in the core app. | Future regional model | Current demo uses city, not department. |
-| `gross_written_premium` | Premium volume reported by the market or company. | Fasecolda - Ciudades y Ramos; Indicadores de Gestion where available | COP | Ciudades y Ramos `VALOR` is treated as thousands of COP and converted to COP in the app. Annual analytics use the latest available monthly cut per year. | KPIs, trends, rankings, briefs, signals, exports | Do not sum multiple monthly cumulative cuts to create annual values. |
-| `claims` | Claims reported in Ciudades y Ramos. | Fasecolda - Ciudades y Ramos | COP | Source `VALOR` treated as thousands of COP and converted to COP. | Claims / Premiums ratio, trends, briefs | This is not the same field as paid claims in Indicadores de Gestion. |
-| `loss_ratio` | Analytical claims-to-premium ratio. Display label: Claims / Premiums or Siniestros / Primas. | Calculated in app from the normalized DuckDB data model | Ratio / percentage | `claims / gross_written_premium`, recalculated after aggregation. Numerator uses the app `claims` metric from Fasecolda - Ciudades y Ramos. Denominator uses the app `gross_written_premium` metric from the same source unless otherwise stated. | Market Overview, Company Explorer, Line Explorer, Company Brief, Technical Signals | This is not necessarily equal to Fasecolda's official technical loss ratio, technical siniestralidad, incurred loss ratio, paid loss ratio, or combined ratio. SOAT and other regulated or technical lines may differ materially from Fasecolda visualizer indicators because official views can use different premium, claims, reserve, commission, and expense bases. |
+| `gross_written_premium` | Compatibility premium metric used by the current dashboard for scale, rankings and market share. | SFC Formato 290 when available | COP | Formato 290 written premium = direct written premium + accepted co-insurance premium + accepted reinsurance premium. | KPIs, trends, rankings, briefs, signals, exports | Label as written premium, not generic premium. Period basis requires business confirmation before annualized growth. |
+| `claims` | Compatibility claims metric used by the current dashboard. | SFC Formato 290 when available | COP | Formato 290 Unidad de Captura 8 / Subcuenta 999, `SINIESTROS CTA CIA`, treated as incurred claims / technical account movement. | Technical claims ratio, trends, briefs | Can be negative because it may include reserve, recovery or net technical movements. Not ordinary paid claims. |
+| `loss_ratio` | Analytical technical claims ratio. Display label: Incurred Claims / Written Premium. | Calculated in app from the normalized DuckDB data model | Ratio / percentage | `claims / gross_written_premium`, recalculated after aggregation from totals. | Market Overview, Company Explorer, Line Explorer, Company Brief, Technical Signals | Not safe to call ordinary siniestralidad without qualification. It is not necessarily equal to official technical loss ratio, combined ratio, incurred loss ratio, paid loss ratio, or Fasecolda visualizer indicators. |
 | `market_share` | Company share of selected market premium. | Calculated in app | Ratio / percentage | Company premium divided by total premium in the selected filter scope. | Market Overview, Company Brief, Technical Signals | Changes with filters for year, company, line, and city. |
 | `growth_rate` / `premium_growth` | Premium movement versus previous available year. | Calculated in app | Ratio / percentage | Current period premium divided by previous period premium minus 1. | Market Overview, Company Brief, Technical Signals | Sensitive to low premium bases, missing prior years, and classification changes. |
 | `retained_premium` | Premium retained by the insurer after reinsurance. | Fasecolda - Indicadores de Gestion 2025 | COP | Extracted from complementary source and aggregated as monetary value. | Reinsurance View, Company Brief reinsurance indicators, exports | Exploratory source pending deeper methodological validation. |
@@ -35,13 +39,30 @@ This dictionary explains the business meaning, source, unit, and use of the main
 | `source_sheet` | Excel sheet used to create the record, where captured. | Load process / future enhancement | Text | Not consistently populated in current core table. | Future validation | Use `source_file` as primary traceability in current demo. |
 | `update_date` / `updated_at` | Date/time when data was loaded or transformed. | Load process | Timestamp | Assigned during pipeline execution where available. | Data Status | Current Streamlit Cloud demo is a static snapshot, not auto-updated. |
 
+## Formato 290 Fields
+
+| Field name | Business meaning | Source | Unit | Calculation / transformation | Used in app modules | Notes / limitations |
+|---|---|---|---|---|---|---|
+| `raw_formato_290` | Raw API records from Datos Abiertos. | SFC Formato 290 `e967-4a8r` | Source fields | Downloaded with Socrata pagination and ingestion metadata. | Audit and traceability | Raw table is not used directly for dashboard metrics. |
+| `clean_formato_290.period_date` | Reporting period detected from `Año` and `Mes`. | Formato 290 | Date | First day of reporting month. | Data Status, marts | Period basis must be confirmed before annualization. |
+| `clean_formato_290.company_name_raw` | Insurer/entity name as reported by SFC. | Formato 290 | Text | From `nombre_entidad`. | Traceability | Preserves source wording, codes and quotes where present. |
+| `clean_formato_290.company_name_clean` | Clean insurer name. | Formato 290 / app transformation | Text | Removes leading entity code, unnecessary quotes and extra spaces. | Charts and analysis labels | Keeps the code separately in `company_code`. |
+| `clean_formato_290.company_display_name` | Business display name. | Formato 290 / app transformation | Text | `company_code | company_name_clean`. | Filters and tables | Keeps reconciliation code visible without cluttering chart labels. |
+| `clean_formato_290.ramo_name_raw` | Insurance line source column. | Formato 290 | Text | Wide ramo columns are melted into long form. | Traceability | Source field preserved. |
+| `clean_formato_290.ramo_name_clean` | Clean insurance line name. | Formato 290 / app transformation | Text | Replaces underscores, removes trailing `_mes` / `MES`, uppercases. | Line analysis after migration | Includes `TOTAL` and subtotal columns that may need exclusion from rankings. |
+| `clean_formato_290.concept_name` | Official unit/subaccount concept. | Formato 290 | Text | `nombre_unidad_de_captura` + `nombre_subcuenta`. | Mapping, methodology | Business review required for final metric mapping. |
+| `clean_formato_290.metric_name` | Candidate app metric mapped from concept text. | App mapping rules | Text | Keyword-based transparent mapping. | Marts, Data Status | Unmatched concepts remain `pending_mapping`. |
+| `clean_formato_290.normalized_value` | Numeric source value. | Formato 290 | COP, COP MM, or units depending on unit capture | Parsed from source ramo column. | Marts and validation | Unidad de Captura 19 is reported in millions of pesos; Unidad 20 in units. |
+| `mart_formato_290_dashboard_metrics.metric_value` | Aggregated metric by period, company, ramo and mapped concept. | Clean Formato 290 table | COP unless unit says otherwise | Sum of normalized values for mapped concepts. | Future core dashboard metrics | Do not mix written, earned, retained and ceded premium bases. |
+| `fact_market_core_formato_290` | Compatibility table for Streamlit core metrics. | Formato 290 marts | COP | Uses mapped `gross_written_premium` and preferred claims metric where available. | Market Overview, Company Explorer, Line Explorer | Created only when mapping is available. Data Status shows validation state. |
+
 ## Important Unit Notes
 
 - Fasecolda - Ciudades y Ramos `VALOR` is treated as thousands of COP and converted to COP in the app analytics layer.
 - App labels such as `COP MM` show millions of COP after the conversion.
 - Annual analytics use the latest available monthly cut per year to avoid summing cumulative monthly files.
 - Reinsurance metrics from Indicadores de Gestion are complementary and exploratory.
-- The app field `loss_ratio` is displayed as Claims / Premiums or Siniestros / Primas. It is an analytical `claims / gross_written_premium` ratio, not an official Fasecolda technical indicator unless explicitly stated.
+- The app field `loss_ratio` is displayed as Incurred Claims / Written Premium. It is an analytical technical movement ratio, not an official siniestralidad or combined ratio unless explicitly reconciled.
 
 ## Broker Interpretation
 

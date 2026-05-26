@@ -1,4 +1,4 @@
-import streamlit as st
+﻿import streamlit as st
 import duckdb
 import json
 import os
@@ -67,7 +67,7 @@ from src.ui_components import (
 )
 
 # ============================================================
-# CONFIGURACIÓN GENERAL
+# CONFIGURACIÃ“N GENERAL
 # ============================================================
 
 st.set_page_config(
@@ -90,44 +90,104 @@ VALIDATION_REPORT_PATH = Path("outputs/market_core_validation_report.csv")
 INDICADORES_VALIDATION_REPORT_PATH = Path("outputs/indicadores_gestion_2025_validation_report.csv")
 INDICADORES_VALIDATION_FLAGS_PATH = Path("outputs/indicadores_gestion_2025_flags.csv")
 PIPELINE_STATUS_PATH = Path("data/metadata/latest_pipeline_status.json")
+COMPANY_ALIASES_PATH = Path("config/company_aliases.csv")
 CORE_MARKET_SOURCE = "FASECOLDA - CIUDADES Y RAMOS"
 CORE_SOURCE_VALUE_MULTIPLIER = 1_000
-DEBUG_MODE = False
-CLAIMS_PREMIUM_RATIO_LABEL_ES = "Siniestros / Primas"
-CLAIMS_PREMIUM_RATIO_LABEL_EN = "Claims / Premiums"
+DEBUG_MODE = os.getenv("APP_DEBUG_MODE", "false").strip().lower() in {"1", "true", "yes", "y"}
+CLAIMS_PREMIUM_RATIO_LABEL_ES = "Siniestros incurridos / prima escrita"
+CLAIMS_PREMIUM_RATIO_LABEL_EN = "Incurred Claims / Written Premium"
 CLAIMS_PREMIUM_RATIO_NOTE = (
-    "The 'Claims / Premiums' ratio is an analytical metric calculated from the available "
-    "app database. It may not be equivalent to Fasecolda's official technical loss ratio, "
-    "combined ratio, or other technical indicators, which may use different premium, "
-    "claims, reserve, commission, and expense bases."
+    "The default claims ratio is an analytical technical movement ratio calculated as "
+    "mapped incurred claims over mapped written premium in the app database. It is not "
+    "a conventional gross loss ratio, official technical siniestralidad, or combined "
+    "ratio. Negative values may reflect reserve, recovery, net technical account or "
+    "source-mapping movements and require business validation."
 )
 CLAIMS_PREMIUM_RATIO_NOTE_ES = (
-    "El ratio 'Siniestros / Primas' corresponde a una metrica analitica calculada con "
-    "la informacion disponible en la base de la app. No necesariamente equivale a la "
-    "siniestralidad tecnica oficial, indice combinado u otros indicadores tecnicos "
-    "publicados por Fasecolda, que pueden usar bases de prima, siniestros, reservas, "
-    "comisiones y gastos diferentes."
+    "El ratio por defecto corresponde a una metrica tecnica analitica calculada como "
+    "siniestros incurridos mapeados sobre prima escrita mapeada en la base de la app. "
+    "No es una siniestralidad bruta convencional, siniestralidad tecnica oficial ni "
+    "indice combinado. Valores negativos pueden reflejar movimientos de reservas, "
+    "recobros, efectos netos o mapeos pendientes y requieren validacion de negocio."
 )
+
+MONTH_NAME = {
+    1: "January",
+    2: "February",
+    3: "March",
+    4: "April",
+    5: "May",
+    6: "June",
+    7: "July",
+    8: "August",
+    9: "September",
+    10: "October",
+    11: "November",
+    12: "December",
+}
+MONTH_ABBR = {
+    1: "Jan",
+    2: "Feb",
+    3: "Mar",
+    4: "Apr",
+    5: "May",
+    6: "Jun",
+    7: "Jul",
+    8: "Aug",
+    9: "Sep",
+    10: "Oct",
+    11: "Nov",
+    12: "Dec",
+}
 
 # ============================================================
 # FUNCIONES DE CARGA
 # ============================================================
 
 @st.cache_data
+def get_core_market_table_name():
+    if not DB_PATH.exists():
+        return None
+    conn = duckdb.connect(str(DB_PATH), read_only=True)
+    try:
+        tables = set(
+            conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+            ).fetchdf()["table_name"].tolist()
+        )
+        if "fact_market_core_formato_290" in tables:
+            return "fact_market_core_formato_290"
+        if "fact_market_core" in tables:
+            return "fact_market_core"
+        return None
+    finally:
+        conn.close()
+
+
+@st.cache_data
 def load_market_core():
     if not DB_PATH.exists():
         return pd.DataFrame()
 
+    core_table = get_core_market_table_name()
+    if not core_table:
+        return pd.DataFrame()
+
     conn = duckdb.connect(str(DB_PATH), read_only=True)
     try:
-        return conn.execute("""
+        if core_table == "fact_market_core_formato_290":
+            return conn.execute(f"""
+                SELECT *
+                FROM {core_table}
+            """).fetchdf()
+        return conn.execute(f"""
             WITH latest_months AS (
                 SELECT country, source, year, MAX(month) AS month
-                FROM fact_market_core
+                FROM {core_table}
                 GROUP BY country, source, year
             )
             SELECT f.*
-            FROM fact_market_core f
+            FROM {core_table} f
             INNER JOIN latest_months lm
                 ON f.country = lm.country
                AND f.source = lm.source
@@ -143,11 +203,15 @@ def load_market_core_all_periods():
     if not DB_PATH.exists():
         return pd.DataFrame()
 
+    core_table = get_core_market_table_name()
+    if not core_table:
+        return pd.DataFrame()
+
     conn = duckdb.connect(str(DB_PATH), read_only=True)
     try:
-        return conn.execute("""
+        return conn.execute(f"""
             SELECT *
-            FROM fact_market_core
+            FROM {core_table}
         """).fetchdf()
     finally:
         conn.close()
@@ -248,6 +312,146 @@ def load_pipeline_status():
         return {}
 
 
+@st.cache_data
+def load_formato_290_status():
+    if not DB_PATH.exists():
+        return {}
+    conn = duckdb.connect(str(DB_PATH), read_only=True)
+    try:
+        tables = set(
+            conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+            ).fetchdf()["table_name"].tolist()
+        )
+        if "clean_formato_290" not in tables:
+            return {"available": False}
+        latest = conn.execute("SELECT MAX(period_date) FROM clean_formato_290").fetchone()[0]
+        rows = conn.execute("SELECT COUNT(*) FROM clean_formato_290").fetchone()[0]
+        companies = conn.execute("SELECT COUNT(DISTINCT company_standard) FROM clean_formato_290").fetchone()[0]
+        ramos = conn.execute("SELECT COUNT(DISTINCT ramo_standard) FROM clean_formato_290").fetchone()[0]
+        raw_rows = conn.execute("SELECT COUNT(*) FROM raw_formato_290").fetchone()[0] if "raw_formato_290" in tables else None
+        fact_rows = conn.execute("SELECT COUNT(*) FROM fact_market_core_formato_290").fetchone()[0] if "fact_market_core_formato_290" in tables else None
+        ingestion = None
+        extraction_method = None
+        if "raw_formato_290" in tables:
+            ingestion = conn.execute("SELECT MAX(ingestion_timestamp) FROM raw_formato_290").fetchone()[0]
+            extraction_method = conn.execute("SELECT MAX(extraction_method) FROM raw_formato_290").fetchone()[0]
+        validation_status = "Not validated"
+        validation_counts = {}
+        if "validation_formato_290" in tables:
+            validation_counts_df = conn.execute(
+                "SELECT status, COUNT(*) AS count FROM validation_formato_290 GROUP BY status"
+            ).fetchdf()
+            validation_counts = dict(zip(validation_counts_df["status"], validation_counts_df["count"]))
+            statuses = validation_counts_df["status"].tolist()
+            validation_status = "FAIL" if "FAIL" in statuses else "WARNING" if "WARNING" in statuses else "PASS"
+        mapped_metrics = []
+        pending_metrics = []
+        if "formato_290_metric_mapping_status" in tables:
+            mapping_df = conn.execute(
+                """
+                SELECT metric_name, mapping_status, COUNT(*) AS records
+                FROM formato_290_metric_mapping_status
+                GROUP BY metric_name, mapping_status
+                ORDER BY metric_name
+                """
+            ).fetchdf()
+            mapped_metrics = sorted(mapping_df.loc[mapping_df["mapping_status"] == "MAPPED", "metric_name"].dropna().unique().tolist())
+            pending_metrics = sorted(mapping_df.loc[mapping_df["mapping_status"] != "MAPPED", "metric_name"].dropna().unique().tolist())
+        return {
+            "available": True,
+            "latest_period": latest,
+            "rows": rows,
+            "raw_rows": raw_rows,
+            "fact_rows": fact_rows,
+            "companies": companies,
+            "ramos": ramos,
+            "ingestion_timestamp": ingestion,
+            "extraction_method": extraction_method,
+            "validation_status": validation_status,
+            "validation_counts": validation_counts,
+            "mapped_metrics": mapped_metrics,
+            "pending_metrics": pending_metrics,
+        }
+    finally:
+        conn.close()
+
+
+@st.cache_data
+def load_metric_readiness_matrix():
+    path = Path("outputs/data_quality/formato_290_metric_readiness_matrix.csv")
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data
+def load_combined_ratio_readiness():
+    path = Path("outputs/data_quality/formato_290_combined_ratio_readiness.csv")
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data
+def load_technical_bridge_summary():
+    path = Path("outputs/data_quality/formato_290_technical_bridge_summary.csv")
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data
+def load_company_aliases():
+    if not COMPANY_ALIASES_PATH.exists():
+        return pd.DataFrame(
+            columns=[
+                "company_code",
+                "company_name_clean",
+                "company_short_name",
+                "company_group_name",
+                "active",
+            ]
+        )
+    try:
+        aliases = pd.read_csv(COMPANY_ALIASES_PATH)
+        aliases["company_code"] = aliases["company_code"].astype(str).str.strip()
+        aliases["company_name_clean"] = aliases["company_name_clean"].astype(str).str.strip().str.upper()
+        aliases["company_short_name"] = aliases["company_short_name"].astype(str).str.strip()
+        aliases["company_group_name"] = aliases["company_group_name"].astype(str).str.strip()
+        aliases["active"] = aliases["active"].astype(str).str.upper().isin(["TRUE", "1", "YES", "Y"])
+        return aliases[aliases["active"]].copy()
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data
+def load_formato_290_technical_bridge():
+    if not DB_PATH.exists():
+        return pd.DataFrame()
+    conn = duckdb.connect(str(DB_PATH), read_only=True)
+    try:
+        tables = set(
+            conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+            ).fetchdf()["table_name"].tolist()
+        )
+        if "mart_formato_290_technical_bridge" not in tables:
+            return pd.DataFrame()
+        return conn.execute("SELECT * FROM mart_formato_290_technical_bridge").fetchdf()
+    finally:
+        conn.close()
+
+
 # ============================================================
 # FUNCIONES AUXILIARES
 # ============================================================
@@ -295,6 +499,172 @@ def safe_divide(numerator, denominator):
     return numerator / denominator
 
 
+def extract_company_code(value):
+    text = str(value or "").strip()
+    if "|" in text:
+        return text.split("|", 1)[0].strip()
+    first_token = text.split(" ", 1)[0].strip()
+    return first_token if "-" in first_token else ""
+
+
+def apply_company_aliases(data, aliases):
+    enriched = data.copy()
+    if enriched.empty:
+        return enriched
+
+    if "company_code" not in enriched.columns:
+        if "company_display_name" in enriched.columns:
+            enriched["company_code"] = enriched["company_display_name"].map(extract_company_code)
+        elif "company_local" in enriched.columns:
+            enriched["company_code"] = enriched["company_local"].map(extract_company_code)
+        else:
+            enriched["company_code"] = ""
+
+    if "company_name_clean" not in enriched.columns:
+        source_name_col = "company_standard" if "company_standard" in enriched.columns else "company_display_name"
+        enriched["company_name_clean"] = enriched.get(source_name_col, pd.Series(dtype=str)).astype(str).str.strip().str.upper()
+
+    if "company_display_name" not in enriched.columns:
+        enriched["company_display_name"] = (
+            enriched["company_code"].astype(str).str.strip()
+            + " | "
+            + enriched["company_name_clean"].astype(str).str.strip()
+        ).str.strip(" |")
+
+    if aliases is not None and not aliases.empty:
+        alias_cols = ["company_code", "company_name_clean", "company_short_name", "company_group_name"]
+        enriched = enriched.merge(
+            aliases[alias_cols].drop_duplicates(),
+            on=["company_code", "company_name_clean"],
+            how="left",
+        )
+    else:
+        enriched["company_short_name"] = pd.NA
+        enriched["company_group_name"] = pd.NA
+
+    enriched["company_short_name"] = (
+        enriched["company_short_name"]
+        .fillna(enriched["company_name_clean"])
+        .astype(str)
+        .str.replace(r"\s+S\.A\.?$", "", regex=True)
+        .str.strip()
+    )
+    enriched["company_group_name"] = enriched["company_group_name"].fillna(enriched["company_short_name"])
+    return enriched
+
+
+def clean_ramo_label(value):
+    text = str(value or "").strip()
+    text = text.replace("_mes", "").replace("_MES", "")
+    text = text.replace(" MES", "").replace(" mes", "")
+    return " ".join(text.upper().split())
+
+
+AGGREGATE_LINE_KEYWORDS = (
+    "TOTAL",
+    "SUBTOTAL",
+    "TOTAL RAMOS",
+    "SUBTOTAL RAMOS",
+    "OPE NO RAMOS",
+    "OPERACIONES NO RAMOS",
+)
+
+
+def is_real_line_of_business(value):
+    label = clean_ramo_label(value)
+    if not label:
+        return False
+    return not any(keyword in label for keyword in AGGREGATE_LINE_KEYWORDS)
+
+
+def filter_real_lob_rows(data):
+    filtered = data.copy()
+    if filtered.empty:
+        return filtered
+    line_col = None
+    for candidate in ["line_of_business_standard", "ramo_name_clean", "ramo_display_name"]:
+        if candidate in filtered.columns:
+            line_col = candidate
+            break
+    if not line_col:
+        return filtered
+    return filtered[filtered[line_col].map(is_real_line_of_business)].copy()
+
+
+def apply_line_labels(data):
+    enriched = data.copy()
+    if enriched.empty:
+        return enriched
+    if "line_of_business_standard" in enriched.columns:
+        enriched["line_of_business_standard"] = enriched["line_of_business_standard"].map(clean_ramo_label)
+    if "line_of_business_display_name" in enriched.columns:
+        enriched["line_of_business_display_name"] = enriched["line_of_business_display_name"].map(clean_ramo_label)
+    if "ramo_name_clean" in enriched.columns:
+        enriched["ramo_name_clean"] = enriched["ramo_name_clean"].map(clean_ramo_label)
+    if "ramo_display_name" in enriched.columns:
+        enriched["ramo_display_name"] = enriched["ramo_display_name"].map(clean_ramo_label)
+    return enriched
+
+
+def get_company_display(data):
+    if "company_display_name" in data.columns:
+        return data["company_display_name"]
+    if "company_standard" in data.columns:
+        return data["company_standard"]
+    return pd.Series(dtype=str)
+
+
+def prepare_bridge_scope(bridge_df, selected_years_scope, month_cutoff, company="TODAS", line="TODOS"):
+    if bridge_df.empty:
+        return bridge_df.copy()
+    bridge = bridge_df.copy()
+    bridge["year"] = pd.to_numeric(bridge["year"], errors="coerce").astype("Int64")
+    bridge["month"] = pd.to_numeric(bridge["month"], errors="coerce").astype("Int64")
+    bridge = bridge[bridge["year"].isin([int(year) for year in selected_years_scope])]
+    if comparison_mode == "Full year vs previous full year":
+        bridge = bridge[bridge["month"] == 12]
+    else:
+        bridge = bridge[bridge["month"] == int(month_cutoff)]
+    if company != "TODAS":
+        bridge = bridge[bridge["company_name_clean"] == company]
+    if line != "TODOS":
+        bridge = bridge[bridge["ramo_name_clean"] == line]
+    return bridge.copy()
+
+
+def summarize_bridge(data, group_cols):
+    if data.empty:
+        return pd.DataFrame(columns=group_cols)
+    if not group_cols:
+        written = data["written_premium_dashboard_basis"].sum() if "written_premium_dashboard_basis" in data.columns else None
+        ceded = data["ceded_premium_display_abs"].sum() if "ceded_premium_display_abs" in data.columns else None
+        retained = data["retained_premium"].sum() if "retained_premium" in data.columns else None
+        technical = data["official_technical_result_raw"].sum() if "official_technical_result_raw" in data.columns else None
+        return pd.DataFrame([{
+            "written_premium": written,
+            "ceded_premium": ceded,
+            "retained_premium": retained,
+            "technical_result": technical,
+            "cession_ratio": safe_divide(ceded, written),
+            "retention_ratio": safe_divide(retained, written),
+            "technical_result_ratio": safe_divide(technical, written),
+        }])
+    summary = (
+        data
+        .groupby(group_cols, dropna=False, as_index=False)
+        .agg(
+            written_premium=("written_premium_dashboard_basis", "sum"),
+            ceded_premium=("ceded_premium_display_abs", "sum"),
+            retained_premium=("retained_premium", "sum"),
+            technical_result=("official_technical_result_raw", "sum"),
+        )
+    )
+    summary["cession_ratio"] = summary.apply(lambda row: safe_divide(row["ceded_premium"], row["written_premium"]), axis=1)
+    summary["retention_ratio"] = summary.apply(lambda row: safe_divide(row["retained_premium"], row["written_premium"]), axis=1)
+    summary["technical_result_ratio"] = summary.apply(lambda row: safe_divide(row["technical_result"], row["written_premium"]), axis=1)
+    return summary
+
+
 def normalize_core_market_units(data):
     """
     Fasecolda Ciudades y Ramos publishes VALOR in thousands of COP.
@@ -317,6 +687,61 @@ def normalize_core_market_units(data):
     return normalized
 
 
+def apply_formato_290_period_mode(data, selected_years_scope, month_cutoff, comparison_mode):
+    filtered = data.copy()
+    if filtered.empty:
+        return filtered
+    filtered["year"] = pd.to_numeric(filtered["year"], errors="coerce").astype("Int64")
+    filtered["month"] = pd.to_numeric(filtered["month"], errors="coerce").astype("Int64")
+    selected_years_scope = [int(year) for year in selected_years_scope]
+    month_cutoff = int(month_cutoff)
+
+    if comparison_mode == "Full year vs previous full year":
+        return filtered[(filtered["year"].isin(selected_years_scope)) & (filtered["month"] == 12)].copy()
+
+    if comparison_mode == "Selected month vs same month previous year":
+        key_cols = [
+            col for col in [
+                "country",
+                "region",
+                "regulator",
+                "source",
+                "year",
+                "company_local",
+                "company_standard",
+                "company_display_name",
+                "line_of_business_local",
+                "line_of_business_standard",
+                "line_of_business_display_name",
+                "city",
+                "metric_name",
+                "currency",
+                "source_file",
+                "updated_at",
+            ]
+            if col in filtered.columns
+        ]
+        current = filtered[(filtered["year"].isin(selected_years_scope)) & (filtered["month"] == month_cutoff)].copy()
+        if month_cutoff > 1:
+            prior_month = filtered[(filtered["year"].isin(selected_years_scope)) & (filtered["month"] == month_cutoff - 1)].copy()
+            prior_cols = key_cols + ["metric_value"]
+            prior_month = prior_month[prior_cols].rename(columns={"metric_value": "prior_month_value"})
+            current = current.merge(prior_month, on=key_cols, how="left")
+            current["metric_value"] = current["metric_value"] - current["prior_month_value"].fillna(0)
+            current = current.drop(columns=["prior_month_value"])
+        current["period_date"] = pd.to_datetime(
+            {
+                "year": current["year"].astype(int),
+                "month": current["month"].astype(int),
+                "day": 1,
+            },
+            errors="coerce",
+        )
+        return current
+
+    return filtered[(filtered["year"].isin(selected_years_scope)) & (filtered["month"] == month_cutoff)].copy()
+
+
 def latest_market_snapshot_by_year(data):
     """
     Ciudades y Ramos monthly files are cumulative cuts. Annual analysis should
@@ -333,12 +758,36 @@ def latest_market_snapshot_by_year(data):
 
 def fix_year_axis(fig, years):
     years = sorted(pd.Series(years).dropna().astype(int).unique())
+    tick_labels = [format_period_year_label(year) for year in years]
     fig.update_xaxes(
         tickmode="array",
         tickvals=years,
+        ticktext=tick_labels,
         tickformat="d"
     )
     return fig
+
+
+def format_period_year_label(year):
+    try:
+        year = int(year)
+    except Exception:
+        return str(year)
+    if not globals().get("is_formato_290_core", False):
+        return str(year)
+
+    month = int(globals().get("selected_month_cutoff") or 12)
+    mode = globals().get("comparison_mode", "")
+    month_text = MONTH_ABBR.get(month, str(month))
+    if mode == "YTD vs same period previous year":
+        return f"{year} YTD {month_text}"
+    if mode == "Selected month vs same month previous year":
+        return f"{month_text} {year}"
+    if mode == "Full year vs previous full year":
+        return str(year)
+    if month < 12:
+        return f"{year} as of {month_text}"
+    return str(year)
 
 
 def normalize_lob_text(value):
@@ -359,7 +808,7 @@ def normalize_match_text(value):
 def get_aggregate_lob_lookup(country="COLOMBIA", target_source="FASECOLDA - INDICADORES DE GESTION"):
     aggregate_names = {
         "TOTAL DANOS",
-        "TOTAL DAÑOS",
+        "TOTAL DAÃ‘OS",
         "TOTAL PERSONAS",
         "TOTAL SEGURIDAD SOCIAL",
     }
@@ -463,29 +912,29 @@ def map_lob_to_indicadores_gestion(selected_line):
         "AVIACION": "Aviación",
         "AVIACIÓN": "Aviación",
         "AGROPECUARIO": "Agropecuario",
-        "SUSTRACCION": "Sustracción",
         "SUSTRACCIÓN": "Sustracción",
+        "SUSTRACCIÃ“N": "Sustracción",
         "DESEMPLEO": "Desempleo",
         "EXEQUIAS": "Exequias",
         "MANEJO": "Manejo",
-        "CORRIENTE DEBIL": "Corriente Débil",
         "CORRIENTE DÉBIL": "Corriente Débil",
-        "SEGUROS DE CREDITO": "Seguros de Credito",
+        "CORRIENTE DÃ‰BIL": "Corriente Débil",
         "SEGUROS DE CRÉDITO": "Seguros de Credito",
-        "MINAS Y PETROLEOS": "Minas y Petróleos",
+        "SEGUROS DE CRÃ‰DITO": "Seguros de Credito",
         "MINAS Y PETRÓLEOS": "Minas y Petróleos",
+        "MINAS Y PETRÃ“LEOS": "Minas y Petróleos",
         "MONTAJE Y ROTURA": "Montaje y Rotura",
-        "INGENIERIA": "Ingenieria",
+        "INGENIERÍA": "Ingenieria",
         "INGENIERÍA": "Ingenieria",
         "TODO RIESGO CONTRATISTA": "Todo Riesgo Cont.",
-        "NAVEGACION Y CASCO": "Nav.yCasco",
         "NAVEGACIÓN Y CASCO": "Nav.yCasco",
+        "NAVEGACIÃ“N Y CASCO": "Nav.yCasco",
         "VIDRIOS": "Vidrios",
         "DECENAL": "Decenal",
         "BEPS": "BEPS",
         "ACCIDENTES PERSONALES": "Accidentes P",
-        "ACCIDENTES P": "Accidentes P",
         "OTROS DAÑOS": "Otros Daños",
+        "OTROS DAÃ‘OS": "Otros Daños",
         "OTROS PERSONAS": "Otros Personas",
     }
 
@@ -514,7 +963,7 @@ def prepare_premium_claims_summary(data, group_cols):
         how="left"
     )
 
-    summary["siniestros"] = summary["siniestros"].fillna(0)
+    summary["siniestros"] = summary["siniestros"].fillna(0).abs()
     summary["siniestralidad"] = summary["siniestros"] / summary["primas"]
 
     return summary
@@ -522,6 +971,9 @@ def prepare_premium_claims_summary(data, group_cols):
 
 def make_display_summary(summary_df):
     display_df = summary_df.copy()
+
+    if "year" in display_df.columns:
+        display_df["year"] = display_df["year"].map(format_period_year_label)
 
     if "primas" in display_df.columns:
         display_df["primas"] = display_df["primas"].map(format_millions)
@@ -624,7 +1076,7 @@ def generate_structured_company_brief(company_name, company_df, market_df):
 
     questions = [
         f"¿Qué está explicando la evolución reciente de primas de {company_name}?",
-        f"¿Hay algún ramo donde el ratio siniestros / primas de {company_name} esté generando presión técnica?",
+        f"¿Hay algún ramo donde el ratio siniestros / primas de {company_name} está generando presión técnica?",
         "¿La estrategia de crecimiento está acompañada por ajustes de pricing, retención o selección de riesgos?",
         "¿Existen oportunidades para revisar estructura de reaseguro, límites, deducibles o acumulaciones?",
         "¿Qué apoyo de análisis, benchmarking o market intelligence podría aportar el broker?"
@@ -760,12 +1212,13 @@ def map_company_using_mapping_table(selected_company, target_source, country="CO
     return None
 
 # ============================================================
-# CARGA Y NORMALIZACIÓN DE DATOS
+# CARGA Y NORMALIZACIÃ“N DE DATOS
 # ============================================================
 
 df = load_market_core()
 lob_mapping_df = load_lob_mapping()
 company_mapping_df = load_company_mapping()
+formato_290_status = load_formato_290_status()
 
 if df.empty:
     st.error(
@@ -802,7 +1255,26 @@ df["year"] = df["year"].astype(int)
 df["month"] = df["month"].astype(int)
 df["metric_value"] = pd.to_numeric(df["metric_value"], errors="coerce")
 df = normalize_core_market_units(df)
-analysis_df = df.copy()
+company_aliases_df = load_company_aliases()
+analysis_df = apply_line_labels(apply_company_aliases(df.copy(), company_aliases_df))
+company_display_lookup = {}
+if "company_display_name" in analysis_df.columns:
+    company_display_lookup = (
+        analysis_df[["company_standard", "company_display_name"]]
+        .dropna()
+        .drop_duplicates()
+        .set_index("company_standard")["company_display_name"]
+        .to_dict()
+    )
+line_display_lookup = {}
+if "line_of_business_display_name" in analysis_df.columns:
+    line_display_lookup = (
+        analysis_df[["line_of_business_standard", "line_of_business_display_name"]]
+        .dropna()
+        .drop_duplicates()
+        .set_index("line_of_business_standard")["line_of_business_display_name"]
+        .to_dict()
+    )
 
 last_update = df["period_date"].max()
 analysis_last_update = analysis_df["period_date"].max()
@@ -847,16 +1319,30 @@ country_options = sorted(analysis_df["country"].dropna().unique())
 if not country_options:
     warn_and_stop("Data not available for the selected source.")
 
+is_formato_290_core = get_core_market_table_name() == "fact_market_core_formato_290"
 render_section_header("Context Filters", "Select the workspace and market context for the analysis.")
 
-(
-    filter_col_module,
-    filter_col_country,
-    filter_col_years,
-    filter_col_company,
-    filter_col_line,
-    filter_col_city,
-) = st.columns([1.9, 1.1, 1.25, 1.7, 2.15, 1.3])
+if is_formato_290_core:
+    (
+        filter_col_module,
+        filter_col_country,
+        filter_col_year,
+        filter_col_month,
+        filter_col_mode,
+    ) = st.columns([1.9, 1.1, 1.0, 1.2, 2.2])
+    (
+        filter_col_company,
+        filter_col_line,
+    ) = st.columns([1.8, 2.4])
+else:
+    (
+        filter_col_module,
+        filter_col_country,
+        filter_col_years,
+        filter_col_company,
+        filter_col_line,
+        filter_col_city,
+    ) = st.columns([1.9, 1.1, 1.25, 1.7, 2.15, 1.3])
 
 with filter_col_module:
     selected_view = st.selectbox(
@@ -880,26 +1366,117 @@ years = sorted(country_df["year"].dropna().unique())
 if not years:
     warn_and_stop("Data not available for the selected country.")
 
-with filter_col_years:
-    year_mode = st.selectbox(
-        "Years",
-        ["All years", "Latest year", "Custom years"],
-        index=0,
-        key="filter_year_mode",
-    )
+selected_reporting_year = None
+selected_month_cutoff = None
+comparison_mode = "Latest available cut"
+comparison_context_label = "Latest available cut"
 
-if year_mode == "Latest year":
-    selected_years = [max(years)]
-elif year_mode == "Custom years":
-    selected_years = st.multiselect(
-        "Custom years",
-        years,
-        default=years,
-        help="Select one or more years for the current workspace.",
-        key="filter_years",
+if is_formato_290_core:
+    years = [int(year) for year in years]
+    latest_period_for_country = country_df["period_date"].max()
+    latest_year = int(latest_period_for_country.year)
+    latest_month = int(latest_period_for_country.month)
+    year_options = ["All years"] + years
+    with filter_col_year:
+        selected_reporting_year_option = st.selectbox(
+            "Year",
+            year_options,
+            index=0,
+            key="filter_reporting_year",
+        )
+    selected_reporting_year = None if selected_reporting_year_option == "All years" else int(selected_reporting_year_option)
+    comparison_modes = [
+        "YTD vs same period previous year",
+        "Full year vs previous full year",
+        "Selected month vs same month previous year",
+    ]
+    with filter_col_mode:
+        comparison_mode = st.selectbox(
+            "Comparison mode",
+            comparison_modes,
+            index=0,
+            key="filter_comparison_mode",
+        )
+    if selected_reporting_year is None:
+        selected_year_available_months = sorted(country_df["month"].dropna().astype(int).unique())
+        selected_years_scope = years
+        default_month = latest_month
+    else:
+        selected_year_available_months = sorted(
+            country_df.loc[country_df["year"].astype(int) == selected_reporting_year, "month"]
+            .dropna()
+            .astype(int)
+            .unique()
+        )
+        selected_years_scope = [selected_reporting_year]
+        default_month = latest_month if selected_reporting_year == latest_year else min(12, max(selected_year_available_months))
+    if comparison_mode == "Full year vs previous full year":
+        default_month = 12
+    with filter_col_month:
+        selected_month_cutoff = st.selectbox(
+            "Month cutoff",
+            list(range(1, 13)),
+            index=max(0, default_month - 1),
+            format_func=lambda value: MONTH_NAME.get(value, str(value)),
+            key="filter_month_cutoff",
+        )
+    if comparison_mode == "Full year vs previous full year" and selected_month_cutoff != 12:
+        selected_month_cutoff = 12
+    country_df = apply_formato_290_period_mode(
+        country_df,
+        selected_years_scope,
+        selected_month_cutoff,
+        comparison_mode,
     )
+    if country_df.empty:
+        render_empty_state(
+            "No data available for the selected reporting period.",
+            "Select another year, month cutoff or comparison mode."
+        )
+        st.stop()
+    claims_mask = country_df["metric_name"].astype(str).eq("claims")
+    country_df.loc[claims_mask, "metric_value"] = country_df.loc[claims_mask, "metric_value"].abs()
+    selected_years = sorted(country_df["year"].dropna().astype(int).unique())
+    if comparison_mode == "Full year vs previous full year":
+        comparison_context_label = (
+            "Full-year comparison through December, all complete years"
+            if selected_reporting_year is None
+            else f"Full-year {selected_reporting_year} through December"
+        )
+    elif comparison_mode == "Selected month vs same month previous year":
+        comparison_context_label = (
+            f"{MONTH_NAME.get(selected_month_cutoff, selected_month_cutoff)} monthly movement, all years"
+            if selected_reporting_year is None
+            else f"{MONTH_NAME.get(selected_month_cutoff, selected_month_cutoff)} {selected_reporting_year} monthly movement"
+        )
+    else:
+        comparison_context_label = (
+            f"YTD through {MONTH_NAME.get(selected_month_cutoff, selected_month_cutoff)}, all years"
+            if selected_reporting_year is None
+            else f"YTD through {MONTH_NAME.get(selected_month_cutoff, selected_month_cutoff)} {selected_reporting_year}"
+        )
 else:
-    selected_years = years
+    with filter_col_years:
+        year_mode = st.selectbox(
+            "Years",
+            ["All years", "Latest year", "Custom years"],
+            index=0,
+            key="filter_year_mode",
+        )
+
+    if year_mode == "Latest year":
+        selected_years = [max(years)]
+    elif year_mode == "Custom years":
+        selected_years = st.multiselect(
+            "Custom years",
+            years,
+            default=years,
+            help="Select one or more years for the current workspace.",
+            key="filter_years",
+        )
+    else:
+        selected_years = years
+    comparison_context_label = "Latest available annual cut by year"
 
 if not selected_years:
     render_empty_state(
@@ -913,6 +1490,7 @@ with filter_col_company:
     selected_company = st.selectbox(
         "Company",
         company_options,
+        format_func=lambda value: company_display_lookup.get(value, value),
         help="Select a company or keep TODAS for the full selected market.",
         key="filter_company",
     )
@@ -922,18 +1500,22 @@ with filter_col_line:
     selected_line = st.selectbox(
         "Line of business",
         line_options,
+        format_func=lambda value: line_display_lookup.get(value, value),
         help="Select a line of business or keep TODOS for all lines.",
         key="filter_line",
     )
 
-city_options = ["TODAS"] + sorted(country_df["city"].dropna().unique())
-with filter_col_city:
-    selected_city = st.selectbox(
-        "City",
-        city_options,
-        help="Use city only when local market detail is needed.",
-        key="filter_city",
-    )
+if is_formato_290_core:
+    selected_city = "TODAS"
+else:
+    city_options = ["TODAS"] + sorted(country_df["city"].dropna().unique())
+    with filter_col_city:
+        selected_city = st.selectbox(
+            "City",
+            city_options,
+            help="Use city only when local market detail is needed.",
+            key="filter_city",
+        )
 
 st.sidebar.divider()
 
@@ -961,7 +1543,10 @@ with st.sidebar.expander("About this tool", expanded=False):
 
 with st.sidebar.expander("Data context", expanded=False):
     st.write(f"Coverage: {selected_country}.")
-    st.write("Source: public market data.")
+    st.write(f"Core table: {get_core_market_table_name() or 'not available'}.")
+    st.write("Target source: Datos Abiertos Colombia / SFC Formato 290, dataset e967-4a8r.")
+    if is_formato_290_core:
+        st.write(f"Comparison basis: {comparison_context_label}.")
     st.write(
         "Last update: "
         f"{analysis_last_update.strftime('%d/%m/%Y') if pd.notna(analysis_last_update) else 'N/A'}."
@@ -969,11 +1554,15 @@ with st.sidebar.expander("Data context", expanded=False):
 
 with st.sidebar.expander("About data & methodology", expanded=False):
     st.write(
-        "Primary source: Fasecolda - Ciudades y Ramos. Annual analytics use the latest available "
-        "monthly cut per year. Source values are converted from thousands of COP to COP for KPIs, "
-        "charts, briefs and exports."
+        "The migration target is SFC Formato 290 from Datos Abiertos Colombia. If the Formato 290 "
+        "core table is not present yet, the app explicitly falls back to the prior Fasecolda snapshot "
+        "until the regulatory ingestion is run and validated."
     )
     st.write(CLAIMS_PREMIUM_RATIO_NOTE)
+    st.write(
+        "Formato 290 period basis requires business confirmation before annualized growth "
+        "or full-year comparisons are used."
+    )
 
 # ============================================================
 # FILTRO PRINCIPAL
@@ -999,54 +1588,173 @@ if filtered_df.empty:
 
 premium_df = filtered_df[filtered_df["metric_name"] == "gross_written_premium"]
 claims_df = filtered_df[filtered_df["metric_name"] == "claims"]
+snapshot_year = int(filtered_df["year"].max()) if not filtered_df.empty else None
+snapshot_df = filtered_df[filtered_df["year"] == snapshot_year].copy() if snapshot_year is not None else filtered_df.copy()
+snapshot_label = (
+    f"latest selected period {snapshot_year} ({comparison_context_label})"
+    if snapshot_year is not None
+    else comparison_context_label
+)
+technical_bridge_df = apply_line_labels(apply_company_aliases(load_formato_290_technical_bridge(), company_aliases_df))
+if is_formato_290_core and not technical_bridge_df.empty:
+    bridge_scope_df = prepare_bridge_scope(
+        technical_bridge_df,
+        selected_years_scope,
+        selected_month_cutoff,
+        company=selected_company,
+        line=selected_line,
+    )
+    bridge_snapshot_df = (
+        bridge_scope_df[bridge_scope_df["year"] == snapshot_year].copy()
+        if snapshot_year is not None and "year" in bridge_scope_df.columns
+        else bridge_scope_df.copy()
+    )
+else:
+    bridge_scope_df = pd.DataFrame()
+    bridge_snapshot_df = pd.DataFrame()
 
 # ============================================================
-# TAB 1 — MARKET OVERVIEW
+# TAB 1 â€” MARKET OVERVIEW
 # ============================================================
 
 if selected_view == "Market Overview":
     try:
-        render_section_header("Market Trends", "Premiums, claims and claims-to-premium ratio for the selected market scope.")
-
-        year_summary = (
-            filtered_df
-            .groupby(["year", "metric_name"], as_index=False)["metric_value"]
-            .sum()
+        render_section_header(
+            "Market Summary",
+            f"Executive snapshot for {comparison_context_label}.",
         )
 
+        snapshot_premium_df = filter_real_lob_rows(snapshot_df[snapshot_df["metric_name"] == "gross_written_premium"].copy())
+        snapshot_claims_df = filter_real_lob_rows(snapshot_df[snapshot_df["metric_name"] == "claims"].copy())
+        chart_bridge_snapshot_df = filter_real_lob_rows(bridge_snapshot_df)
+        chart_bridge_scope_df = filter_real_lob_rows(bridge_scope_df)
+        display_filtered_df = filter_real_lob_rows(filtered_df)
+
+        total_premium = snapshot_premium_df["metric_value"].sum()
+        total_claims = snapshot_claims_df["metric_value"].sum()
+        claims_ratio = safe_divide(total_claims, total_premium)
+        active_companies = snapshot_premium_df.loc[snapshot_premium_df["metric_value"] != 0, "company_standard"].nunique()
+        active_lines = snapshot_premium_df.loc[snapshot_premium_df["metric_value"] != 0, "line_of_business_standard"].nunique()
+        company_premium_total = snapshot_premium_df.groupby("company_standard")["metric_value"].sum().sort_values(ascending=False)
+        top5_concentration = safe_divide(company_premium_total.head(5).sum(), total_premium)
+
+        summary_cols_1 = st.columns(5)
+        with summary_cols_1[0]:
+            render_metric_card("Written Premium", format_millions(total_premium), "Selected period")
+        with summary_cols_1[1]:
+            render_metric_card(CLAIMS_PREMIUM_RATIO_LABEL_EN, format_percentage(claims_ratio), "Uses absolute signed claims movement")
+        with summary_cols_1[2]:
+            render_metric_card("Active Companies", f"{active_companies:,}", "Non-zero written premium")
+        with summary_cols_1[3]:
+            render_metric_card("Active Lines", f"{active_lines:,}", "Non-zero written premium")
+        with summary_cols_1[4]:
+            render_metric_card("Top 5 Concentration", format_percentage(top5_concentration), "Top 5 companies / market")
+
+        render_section_header("Market Share by Company", f"Primary company-level market view - {snapshot_label}.")
+        market_share = (
+            snapshot_premium_df
+            .groupby(["company_standard", "company_display_name", "company_short_name"], as_index=False)["metric_value"]
+            .sum()
+            .sort_values("metric_value", ascending=False)
+        )
+        if not market_share.empty and market_share["metric_value"].sum() > 0:
+            market_share["market_share"] = market_share["metric_value"] / market_share["metric_value"].sum()
+            market_share_top = market_share.head(15).sort_values("market_share", ascending=True)
+            fig_share = px.bar(
+                market_share_top,
+                y="company_short_name",
+                x="market_share",
+                orientation="h",
+                title="Top 15 companies by market share",
+                labels={"company_short_name": "Company", "market_share": "Market Share"},
+                hover_data={"company_display_name": True, "metric_value": ":,.0f", "company_short_name": False},
+            )
+            fig_share.update_xaxes(tickformat=".1%")
+            st.plotly_chart(fig_share, width="stretch")
+        else:
+            st.info("No written premium is available to calculate market share.")
+
+        render_section_header("Line-of-Business Ranking", f"Top lines by written premium - {snapshot_label}.")
+        premium_by_line = (
+            snapshot_premium_df
+            .groupby("line_of_business_standard", as_index=False)["metric_value"]
+            .sum()
+            .sort_values("metric_value", ascending=False)
+            .head(15)
+            .sort_values("metric_value", ascending=True)
+        )
+        if not premium_by_line.empty:
+            premium_by_line["value_mm"] = premium_by_line["metric_value"] / 1_000_000
+            fig_line = px.bar(
+                premium_by_line,
+                y="line_of_business_standard",
+                x="value_mm",
+                orientation="h",
+                title="Top 15 lines of business by written premium",
+                labels={"line_of_business_standard": "Line of business", "value_mm": "COP MM"},
+            )
+            st.plotly_chart(fig_line, width="stretch")
+        else:
+            st.info("No real line-of-business premium data is available for this selection.")
+
+        if not chart_bridge_snapshot_df.empty:
+            render_section_header("Reinsurance Snapshot", "Line-level ceded premium view from Formato 290.")
+            bridge_by_line = summarize_bridge(chart_bridge_snapshot_df, ["ramo_name_clean"])
+            bridge_by_line = bridge_by_line.sort_values("ceded_premium", ascending=False).head(15).sort_values("ceded_premium", ascending=True)
+            if not bridge_by_line.empty:
+                bridge_by_line["ceded_mm"] = bridge_by_line["ceded_premium"] / 1_000_000
+                fig_ceded_line = px.bar(
+                    bridge_by_line,
+                    y="ramo_name_clean",
+                    x="ceded_mm",
+                    orientation="h",
+                    title="Top lines by ceded premium",
+                    labels={"ramo_name_clean": "Line of business", "ceded_mm": "COP MM"},
+                    hover_data={"cession_ratio": ":.1%", "retention_ratio": ":.1%"},
+                )
+                st.plotly_chart(fig_ceded_line, width="stretch")
+            st.caption("Cession and retention ratios are usable with warning until sign convention and denominator basis are approved.")
+
+            render_section_header("Technical Profitability", "Line-level official Technical Result from Formato 290.")
+            tech_by_line = summarize_bridge(chart_bridge_snapshot_df, ["ramo_name_clean"])
+            tech_by_line = tech_by_line.sort_values("technical_result", ascending=False).head(15).sort_values("technical_result", ascending=True)
+            if not tech_by_line.empty:
+                tech_by_line["technical_result_mm"] = tech_by_line["technical_result"] / 1_000_000
+                fig_tech_line = px.bar(
+                    tech_by_line,
+                    y="ramo_name_clean",
+                    x="technical_result_mm",
+                    orientation="h",
+                    title="Top lines by Technical Result",
+                    labels={"ramo_name_clean": "Line of business", "technical_result_mm": "COP MM"},
+                    hover_data={"technical_result_ratio": ":.1%"},
+                )
+                st.plotly_chart(fig_tech_line, width="stretch")
+            st.caption(
+                "Technical Result comes from Formato 290 UC14 / Subcuenta 999. A negative value indicates a negative technical result on the selected technical reporting basis; it is not final company profit/loss. Technical Result Ratio denominator remains under business review."
+            )
+
+        render_section_header("Market Trends", "Evolution of market scale, claims movement, reinsurance and technical result.")
+        year_summary = display_filtered_df.groupby(["year", "metric_name"], as_index=False)["metric_value"].sum()
         year_summary["value_mm"] = year_summary["metric_value"] / 1_000_000
-
-        metric_labels = {
-            "gross_written_premium": "Premiums",
-            "claims": "Claims"
-        }
-
-        year_summary["metric_label"] = year_summary["metric_name"].map(metric_labels)
-
+        year_summary["metric_label"] = year_summary["metric_name"].map({"gross_written_premium": "Written Premium", "claims": "Incurred Claims"})
         fig_year = px.line(
             year_summary,
             x="year",
             y="value_mm",
             color="metric_label",
             markers=True,
-            title="Premium and claims evolution",
-            labels={
-                "year": "Year",
-                "value_mm": "COP MM",
-                "metric_label": "Metric"
-            }
+            title=f"Written Premium and Incurred Claims evolution - {comparison_context_label}",
+            labels={"year": "Year", "value_mm": "COP MM", "metric_label": "Metric"},
         )
-
         fix_year_axis(fig_year, year_summary["year"].unique())
         st.plotly_chart(fig_year, width="stretch")
 
-        yearly_lr = prepare_premium_claims_summary(filtered_df, ["year"])
+        yearly_lr = prepare_premium_claims_summary(display_filtered_df, ["year"])
         yearly_lr["premium_growth"] = yearly_lr["primas"].pct_change()
         yearly_lr["primas_mm"] = yearly_lr["primas"] / 1_000_000
         yearly_lr["siniestros_mm"] = yearly_lr["siniestros"] / 1_000_000
-
         col_a, col_b = st.columns(2)
-
         with col_a:
             fig_lr = px.line(
                 yearly_lr,
@@ -1054,362 +1762,563 @@ if selected_view == "Market Overview":
                 y="siniestralidad",
                 markers=True,
                 title=f"{CLAIMS_PREMIUM_RATIO_LABEL_EN} by year",
-                labels={
-                    "year": "Year",
-                    "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_EN
-                }
+                labels={"year": "Year", "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_EN},
             )
-
             fix_year_axis(fig_lr, yearly_lr["year"].unique())
             fig_lr.update_yaxes(tickformat=".1%")
             st.plotly_chart(fig_lr, width="stretch")
-
         with col_b:
-            fig_growth = px.bar(
-                yearly_lr,
-                x="year",
-                y="premium_growth",
-                title="Annual premium growth",
-                labels={
-                    "year": "Year",
-                    "premium_growth": "Growth"
-                }
-            )
+            if not chart_bridge_scope_df.empty:
+                bridge_by_year = summarize_bridge(chart_bridge_scope_df, ["year"])
+                bridge_by_year["ceded_mm"] = bridge_by_year["ceded_premium"] / 1_000_000
+                bridge_by_year["technical_result_mm"] = bridge_by_year["technical_result"] / 1_000_000
+                bridge_trend = bridge_by_year.melt(
+                    id_vars=["year"],
+                    value_vars=["ceded_mm", "technical_result_mm"],
+                    var_name="metric",
+                    value_name="value_mm",
+                )
+                bridge_trend["metric"] = bridge_trend["metric"].map({"ceded_mm": "Ceded Premium", "technical_result_mm": "Technical Result"})
+                fig_bridge_trend = px.line(
+                    bridge_trend,
+                    x="year",
+                    y="value_mm",
+                    color="metric",
+                    markers=True,
+                    title="Ceded Premium and Technical Result evolution",
+                    labels={"year": "Year", "value_mm": "COP MM", "metric": "Metric"},
+                )
+                fix_year_axis(fig_bridge_trend, bridge_trend["year"].unique())
+                st.plotly_chart(fig_bridge_trend, width="stretch")
+            else:
+                fig_growth = px.bar(
+                    yearly_lr,
+                    x="year",
+                    y="premium_growth",
+                    title="Written Premium Growth",
+                    labels={"year": "Year", "premium_growth": "Growth"},
+                )
+                fix_year_axis(fig_growth, yearly_lr["year"].unique())
+                fig_growth.update_yaxes(tickformat=".1%")
+                st.plotly_chart(fig_growth, width="stretch")
 
-            fix_year_axis(fig_growth, yearly_lr["year"].unique())
-            fig_growth.update_yaxes(tickformat=".1%")
-            st.plotly_chart(fig_growth, width="stretch")
-
-        st.subheader("Resumen anual")
-
+        st.subheader("Annual Summary")
         yearly_display = make_display_summary(yearly_lr)
         render_dataframe(
             yearly_display[["year", "primas", "siniestros", CLAIMS_PREMIUM_RATIO_LABEL_ES, "premium_growth"]],
-            width="stretch"
+            width="stretch",
         )
-
-        st.subheader("Ranking de mercado")
-
-        col_c, col_d = st.columns(2)
-
-        with col_c:
-            premium_by_company = (
-                premium_df
-                .groupby("company_standard", as_index=False)["metric_value"]
-                .sum()
-                .sort_values("metric_value", ascending=False)
-                .head(15)
-            )
-
-            premium_by_company["value_mm"] = premium_by_company["metric_value"] / 1_000_000
-
-            fig_company = px.bar(
-                premium_by_company,
-                x="company_standard",
-                y="value_mm",
-                title="Top 15 companies by premium",
-                labels={
-                    "company_standard": "Company",
-                    "value_mm": "Premiums in COP MM"
-                }
-            )
-
-            st.plotly_chart(fig_company, width="stretch")
-
-        with col_d:
-            premium_by_line = (
-                premium_df
-                .groupby("line_of_business_standard", as_index=False)["metric_value"]
-                .sum()
-                .sort_values("metric_value", ascending=False)
-                .head(15)
-            )
-
-            premium_by_line["value_mm"] = premium_by_line["metric_value"] / 1_000_000
-
-            fig_line = px.bar(
-                premium_by_line,
-                x="line_of_business_standard",
-                y="value_mm",
-                title="Top 15 lines of business by premium",
-                labels={
-                    "line_of_business_standard": "Line of business",
-                    "value_mm": "Premiums in COP MM"
-                }
-            )
-
-            st.plotly_chart(fig_line, width="stretch")
-
-        st.subheader("Market share por compañía")
-
-        market_share = (
-            premium_df
-            .groupby("company_standard", as_index=False)["metric_value"]
-            .sum()
-            .sort_values("metric_value", ascending=False)
-        )
-
-        if not market_share.empty and market_share["metric_value"].sum() > 0:
-            market_share["market_share"] = market_share["metric_value"] / market_share["metric_value"].sum()
-            market_share_top = market_share.head(15)
-
-            fig_share = px.bar(
-                market_share_top,
-                x="company_standard",
-                y="market_share",
-                title="Top 15 companies by market share",
-                labels={
-                    "company_standard": "Company",
-                    "market_share": "Market share"
-                }
-            )
-
-            fig_share.update_yaxes(tickformat=".1%")
-            st.plotly_chart(fig_share, width="stretch")
-        else:
-            st.info("No hay primas suficientes para calcular market share.")
     except Exception as exc:
         render_section_error(exc)
 
 # ============================================================
-# TAB 2 — COMPANY EXPLORER
+# TAB 2 â€” COMPANY EXPLORER
 # ============================================================
 
 if selected_view == "Company Explorer":
     try:
         render_section_header(
             "Company Explorer",
-            "Analyze one insurer's premium evolution, Claims / Premiums behavior and main lines of business.",
+            "Analyze company scale, portfolio mix, reinsurance profile and interim technical profitability.",
         )
-
 
         if selected_company == "TODAS":
             render_empty_state(
                 "Select a company to open the Company Explorer.",
-                "Use the Company filter in the sidebar to view company-level trends and portfolio mix."
+                "Use the Company filter above to view company-level trends and portfolio mix."
             )
         else:
             company_df = filtered_df[filtered_df["company_standard"] == selected_company]
-
             company_summary = prepare_premium_claims_summary(company_df, ["year"])
             company_summary["premium_growth"] = company_summary["primas"].pct_change()
             company_summary["primas_mm"] = company_summary["primas"] / 1_000_000
             company_summary["siniestros_mm"] = company_summary["siniestros"] / 1_000_000
-
             latest_company_year = int(company_summary["year"].max()) if not company_summary.empty else None
+
+            company_bridge_scope = bridge_scope_df.copy()
+            company_bridge_snapshot = bridge_snapshot_df.copy()
+            if not company_bridge_scope.empty and selected_company != "TODAS":
+                company_bridge_scope = company_bridge_scope[company_bridge_scope["company_name_clean"] == selected_company]
+                company_bridge_snapshot = company_bridge_snapshot[company_bridge_snapshot["company_name_clean"] == selected_company]
+            bridge_company_total = summarize_bridge(company_bridge_snapshot, []) if not company_bridge_snapshot.empty else pd.DataFrame()
+            bridge_row = bridge_company_total.iloc[0] if not bridge_company_total.empty else {}
 
             if latest_company_year:
                 latest_company_row = company_summary[company_summary["year"] == latest_company_year]
                 latest_company_premium = latest_company_row["primas"].sum()
                 latest_company_claims = latest_company_row["siniestros"].sum()
-                latest_company_lr = (
-                    latest_company_claims / latest_company_premium
-                    if latest_company_premium else None
+                latest_company_lr = safe_divide(latest_company_claims, latest_company_premium)
+
+                kpi_cols = st.columns(6)
+                with kpi_cols[0]:
+                    render_metric_card("Written Premium", format_millions(latest_company_premium), f"{latest_company_year} selected line")
+                with kpi_cols[1]:
+                    render_metric_card(CLAIMS_PREMIUM_RATIO_LABEL_EN, format_percentage(latest_company_lr), "Selected company and line")
+                with kpi_cols[2]:
+                    render_metric_card("Ceded Premium", format_millions(bridge_row.get("ceded_premium") if bridge_row is not None else None), "Formato 290 bridge")
+                with kpi_cols[3]:
+                    render_metric_card("Cession Ratio", format_percentage(bridge_row.get("cession_ratio") if bridge_row is not None else None), "Usable with warning")
+                with kpi_cols[4]:
+                    render_metric_card("Technical Result", format_millions(bridge_row.get("technical_result") if bridge_row is not None else None), "UC14 / Subcuenta 999")
+                with kpi_cols[5]:
+                    render_metric_card("Technical Result Ratio", format_percentage(bridge_row.get("technical_result_ratio") if bridge_row is not None else None), "Denominator under review")
+
+            render_section_header(
+                "Company Portfolio Mix — all lines of business",
+                f"Largest company lines by written premium for {snapshot_label}.",
+            )
+            if selected_line != "TODOS":
+                st.info(
+                    "This portfolio mix intentionally ignores the selected line-of-business filter "
+                    "to show the company's full business distribution. KPI cards and trend charts respect the selected line."
                 )
 
-                k1, k2, k3 = st.columns(3)
-                k1.metric("Latest-year premiums", format_millions(latest_company_premium))
-                k2.metric("Latest-year claims", format_millions(latest_company_claims))
-                k3.metric(f"Latest-year {CLAIMS_PREMIUM_RATIO_LABEL_EN}", format_percentage(latest_company_lr))
+            portfolio_company_df = country_df[country_df["company_standard"] == selected_company].copy()
+            if snapshot_year is not None:
+                portfolio_company_df = portfolio_company_df[portfolio_company_df["year"] == snapshot_year].copy()
+            portfolio_company_df = filter_real_lob_rows(portfolio_company_df)
+            company_premium = portfolio_company_df[portfolio_company_df["metric_name"] == "gross_written_premium"]
+            company_by_line = (
+                company_premium
+                .groupby("line_of_business_standard", as_index=False)["metric_value"]
+                .sum()
+                .rename(columns={"metric_value": "written_premium"})
+                .sort_values("written_premium", ascending=False)
+                .head(15)
+            )
+            total_company_portfolio = company_premium["metric_value"].sum()
+            company_by_line["portfolio_share"] = company_by_line["written_premium"].apply(lambda value: safe_divide(value, total_company_portfolio))
+            company_line_lr = prepare_premium_claims_summary(portfolio_company_df, ["line_of_business_standard"])
+            company_by_line = company_by_line.merge(
+                company_line_lr[["line_of_business_standard", "siniestralidad"]],
+                on="line_of_business_standard",
+                how="left",
+            )
+            company_portfolio_bridge = prepare_bridge_scope(
+                technical_bridge_df,
+                selected_years_scope,
+                selected_month_cutoff,
+                company=selected_company,
+                line="TODOS",
+            ) if is_formato_290_core and not technical_bridge_df.empty else pd.DataFrame()
+            if snapshot_year is not None and not company_portfolio_bridge.empty:
+                company_portfolio_bridge = company_portfolio_bridge[company_portfolio_bridge["year"] == snapshot_year]
+            company_portfolio_bridge = filter_real_lob_rows(company_portfolio_bridge)
+            bridge_by_line = summarize_bridge(company_portfolio_bridge, ["ramo_name_clean"]) if not company_portfolio_bridge.empty else pd.DataFrame()
+            if not bridge_by_line.empty:
+                company_by_line = company_by_line.merge(
+                    bridge_by_line[["ramo_name_clean", "ceded_premium", "retained_premium", "cession_ratio", "retention_ratio", "technical_result", "technical_result_ratio"]],
+                    left_on="line_of_business_standard",
+                    right_on="ramo_name_clean",
+                    how="left",
+                ).drop(columns=["ramo_name_clean"], errors="ignore")
+            company_by_line["written_premium_mm"] = company_by_line["written_premium"] / 1_000_000
+            portfolio_table = company_by_line.copy()
+            for money_col in ["written_premium", "ceded_premium", "retained_premium", "technical_result"]:
+                if money_col in portfolio_table.columns:
+                    portfolio_table[money_col] = portfolio_table[money_col].map(format_millions)
+            for ratio_col in ["portfolio_share", "siniestralidad", "cession_ratio", "retention_ratio", "technical_result_ratio"]:
+                if ratio_col in portfolio_table.columns:
+                    portfolio_table[ratio_col] = portfolio_table[ratio_col].map(format_percentage)
+            render_dataframe(portfolio_table, width="stretch")
 
+            fig_company_line = px.bar(
+                company_by_line.sort_values("written_premium", ascending=True),
+                y="line_of_business_standard",
+                x="written_premium_mm",
+                orientation="h",
+                title=f"Company portfolio mix by written premium - {snapshot_label}",
+                labels={"line_of_business_standard": "Line of business", "written_premium_mm": "COP MM"},
+            )
+            st.plotly_chart(fig_company_line, width="stretch")
+
+            if not company_portfolio_bridge.empty:
+                render_section_header("Reinsurance Profile", "Ceded and retained premium by line for the selected company.")
+                re_profile = summarize_bridge(company_portfolio_bridge, ["ramo_name_clean"])
+                re_profile = re_profile.sort_values("ceded_premium", ascending=False).head(15)
+                re_profile["ceded_mm"] = re_profile["ceded_premium"] / 1_000_000
+                re_profile["retained_mm"] = re_profile["retained_premium"] / 1_000_000
+                re_left, re_right = st.columns(2)
+                with re_left:
+                    fig_re_line = px.bar(
+                        re_profile.sort_values("ceded_premium", ascending=True),
+                        y="ramo_name_clean",
+                        x="ceded_mm",
+                        orientation="h",
+                        title="Ceded Premium by line",
+                        labels={"ramo_name_clean": "Line of business", "ceded_mm": "COP MM"},
+                        hover_data={"cession_ratio": ":.1%", "retention_ratio": ":.1%"},
+                    )
+                    st.plotly_chart(fig_re_line, width="stretch")
+                with re_right:
+                    fig_ret_line = px.bar(
+                        re_profile.sort_values("retained_premium", ascending=True),
+                        y="ramo_name_clean",
+                        x="retained_mm",
+                        orientation="h",
+                        title="Retained Premium by line",
+                        labels={"ramo_name_clean": "Line of business", "retained_mm": "COP MM"},
+                        hover_data={"cession_ratio": ":.1%", "retention_ratio": ":.1%"},
+                    )
+                    st.plotly_chart(fig_ret_line, width="stretch")
+
+                render_section_header("Technical Profitability", "Technical Result by line, shown as an interim profitability indicator.")
+                tech_profile = re_profile.sort_values("technical_result", ascending=False).head(15).copy()
+                tech_profile["technical_result_mm"] = tech_profile["technical_result"] / 1_000_000
+                fig_tech_line = px.bar(
+                    tech_profile.sort_values("technical_result", ascending=True),
+                    y="ramo_name_clean",
+                    x="technical_result_mm",
+                    orientation="h",
+                    title="Technical Result by line",
+                    labels={"ramo_name_clean": "Line of business", "technical_result_mm": "COP MM"},
+                    hover_data={"technical_result_ratio": ":.1%"},
+                )
+                st.plotly_chart(fig_tech_line, width="stretch")
+                st.caption("Technical Result Ratio is useful as an interim profitability indicator, but its denominator still requires business approval.")
+
+            render_section_header("Written Premium and Incurred Claims Evolution", f"Selected company and line - {comparison_context_label}.")
             col_a, col_b = st.columns(2)
-
             with col_a:
                 fig_company_premium = px.line(
                     company_summary,
                     x="year",
                     y="primas_mm",
                     markers=True,
-                    title=f"Annual premiums - {selected_company}",
-                    labels={
-                        "year": "Year",
-                        "primas_mm": "Premiums in COP MM"
-                    }
+                    title="Written Premium evolution - selected company and line",
+                    labels={"year": "Year", "primas_mm": "COP MM"},
                 )
-
                 fix_year_axis(fig_company_premium, company_summary["year"].unique())
                 st.plotly_chart(fig_company_premium, width="stretch")
-
             with col_b:
                 fig_company_lr = px.line(
                     company_summary,
                     x="year",
                     y="siniestralidad",
                     markers=True,
-                    title=f"Annual {CLAIMS_PREMIUM_RATIO_LABEL_EN} - {selected_company}",
-                    labels={
-                        "year": "Year",
-                        "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_EN
-                    }
+                    title=f"{CLAIMS_PREMIUM_RATIO_LABEL_EN} evolution - selected company and line",
+                    labels={"year": "Year", "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_EN},
                 )
-
                 fix_year_axis(fig_company_lr, company_summary["year"].unique())
                 fig_company_lr.update_yaxes(tickformat=".1%")
                 st.plotly_chart(fig_company_lr, width="stretch")
 
-            render_section_header("Main Lines of Business", "Largest company lines by premium under the selected filters.")
-
-            company_premium = company_df[company_df["metric_name"] == "gross_written_premium"]
-
-            company_by_line = (
-                company_premium
-                .groupby("line_of_business_standard", as_index=False)["metric_value"]
-                .sum()
-                .sort_values("metric_value", ascending=False)
-                .head(15)
-            )
-
-            company_by_line["value_mm"] = company_by_line["metric_value"] / 1_000_000
-
-            fig_company_line = px.bar(
-                company_by_line,
-                x="line_of_business_standard",
-                y="value_mm",
-                title=f"Top lines by premium - {selected_company}",
-                labels={
-                    "line_of_business_standard": "Line of business",
-                    "value_mm": "Premiums in COP MM"
-                }
-            )
-
-            st.plotly_chart(fig_company_line, width="stretch")
-
-            render_section_header("Annual Company Summary", "Premiums, claims, Claims / Premiums and growth by year.")
-
+            render_section_header("Annual Company Summary", f"Written premium, incurred claims and technical ratio - {comparison_context_label}.")
             company_display = make_display_summary(company_summary)
             render_dataframe(
                 company_display[["year", "primas", "siniestros", CLAIMS_PREMIUM_RATIO_LABEL_ES, "premium_growth"]],
-                width="stretch"
+                width="stretch",
             )
     except Exception as exc:
         render_section_error(exc)
 
 # ============================================================
-# TAB 3 — LINE OF BUSINESS EXPLORER
+# TAB 3 â€” LINE OF BUSINESS EXPLORER
 # ============================================================
 
 if selected_view == "Line of Business Explorer":
     try:
         render_section_header(
             "Line of Business Explorer",
-            "Review premium scale, Claims / Premiums and company participation for one selected line of business.",
+            "Treaty-oriented benchmark for a selected line, with company position, peers, reinsurance and technical result context.",
         )
 
         if selected_line == "TODOS":
             render_empty_state(
                 "Select a line of business to open the Line of Business Explorer.",
-                "Use the Line of business filter in the sidebar or keep Market Overview for all lines."
+                "Use the Line of business filter above or keep Market Overview for all lines."
             )
         else:
-            line_df = filtered_df[filtered_df["line_of_business_standard"] == selected_line]
+            line_market_df = filter_real_lob_rows(country_df[country_df["line_of_business_standard"] == selected_line].copy())
+            line_df = filter_real_lob_rows(filtered_df[filtered_df["line_of_business_standard"] == selected_line].copy())
+            line_market_snapshot_df = line_market_df[line_market_df["year"] == snapshot_year].copy() if snapshot_year is not None else line_market_df.copy()
+            selected_line_snapshot_df = line_df[line_df["year"] == snapshot_year].copy() if snapshot_year is not None else line_df.copy()
 
-            line_summary = prepare_premium_claims_summary(line_df, ["year"])
-            line_summary["premium_growth"] = line_summary["primas"].pct_change()
-            line_summary["primas_mm"] = line_summary["primas"] / 1_000_000
-            line_summary["siniestros_mm"] = line_summary["siniestros"] / 1_000_000
-
-            col_a, col_b = st.columns(2)
-
-            with col_a:
-                fig_line_premium = px.line(
-                    line_summary,
-                    x="year",
-                    y="primas_mm",
-                    markers=True,
-                    title=f"Annual premiums - {selected_line}",
-                    labels={
-                        "year": "Year",
-                        "primas_mm": "Premiums in COP MM"
-                    }
-                )
-
-                fix_year_axis(fig_line_premium, line_summary["year"].unique())
-                st.plotly_chart(fig_line_premium, width="stretch")
-
-            with col_b:
-                fig_line_lr = px.line(
-                    line_summary,
-                    x="year",
-                    y="siniestralidad",
-                    markers=True,
-                    title=f"Annual {CLAIMS_PREMIUM_RATIO_LABEL_EN} - {selected_line}",
-                    labels={
-                        "year": "Year",
-                        "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_EN
-                    }
-                )
-
-                fix_year_axis(fig_line_lr, line_summary["year"].unique())
-                fig_line_lr.update_yaxes(tickformat=".1%")
-                st.plotly_chart(fig_line_lr, width="stretch")
-
-            render_section_header("Top Companies Within The Line", "Companies with the largest premium volume in the selected line.")
-
-            line_premium = line_df[line_df["metric_name"] == "gross_written_premium"]
-
-            line_by_company = (
-                line_premium
-                .groupby("company_standard", as_index=False)["metric_value"]
-                .sum()
-                .sort_values("metric_value", ascending=False)
-                .head(20)
-            )
-
-            line_by_company["value_mm"] = line_by_company["metric_value"] / 1_000_000
-
-            fig_line_company = px.bar(
-                line_by_company,
-                x="company_standard",
-                y="value_mm",
-                title=f"Top companies by premium - {selected_line}",
-                labels={
-                    "company_standard": "Company",
-                    "value_mm": "Premiums in COP MM"
-                }
-            )
-
-            st.plotly_chart(fig_line_company, width="stretch")
-
-            render_section_header(f"{CLAIMS_PREMIUM_RATIO_LABEL_EN} By Company", "Analytical claims-to-premium ratio by company for the selected line.")
-
-            line_company_lr = prepare_premium_claims_summary(line_df, ["company_standard"])
-            line_company_lr = line_company_lr[line_company_lr["primas"] >= minimum_premium]
-            line_company_lr = line_company_lr.sort_values("primas", ascending=False).head(20)
-            line_company_lr["primas_mm"] = line_company_lr["primas"] / 1_000_000
-
-            if not line_company_lr.empty:
-                fig_line_company_lr = px.bar(
-                    line_company_lr,
-                    x="company_standard",
-                    y="siniestralidad",
-                    title=f"{CLAIMS_PREMIUM_RATIO_LABEL_EN} by company - {selected_line}",
-                    labels={
-                        "company_standard": "Company",
-                        "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_EN
-                    },
-                    hover_data=["primas_mm"]
-                )
-
-                fig_line_company_lr.update_yaxes(tickformat=".1%")
-                st.plotly_chart(fig_line_company_lr, width="stretch")
-            else:
+            if line_market_df.empty or line_market_snapshot_df.empty:
                 render_empty_state(
-                    "No companies meet the selected minimum premium threshold.",
-                    "Lower the technical signals threshold in the sidebar or broaden the selected period."
+                    "No line-of-business data is available for this selection.",
+                    "Try another line, period mode or broader filter context."
                 )
+            else:
+                market_line_premium_df = line_market_snapshot_df[line_market_snapshot_df["metric_name"] == "gross_written_premium"]
+                market_line_claims_df = line_market_snapshot_df[line_market_snapshot_df["metric_name"] == "claims"]
+                selected_premium_df = selected_line_snapshot_df[selected_line_snapshot_df["metric_name"] == "gross_written_premium"]
+                selected_claims_df = selected_line_snapshot_df[selected_line_snapshot_df["metric_name"] == "claims"]
 
-            render_section_header("Annual Line Summary", "Premiums, claims, Claims / Premiums and growth by year.")
+                total_line_premium = market_line_premium_df["metric_value"].sum()
+                total_line_claims = market_line_claims_df["metric_value"].sum()
+                line_claims_ratio = safe_divide(total_line_claims, total_line_premium)
+                selected_written_premium = selected_premium_df["metric_value"].sum()
+                selected_claims = selected_claims_df["metric_value"].sum()
+                selected_claims_ratio = safe_divide(selected_claims, selected_written_premium)
 
-            line_display = make_display_summary(line_summary)
-            render_dataframe(
-                line_display[["year", "primas", "siniestros", CLAIMS_PREMIUM_RATIO_LABEL_ES, "premium_growth"]],
-                width="stretch"
-            )
+                peer_summary = prepare_premium_claims_summary(line_market_snapshot_df, ["company_standard"])
+                company_meta = (
+                    line_market_snapshot_df[["company_standard", "company_display_name", "company_short_name"]]
+                    .drop_duplicates()
+                )
+                peer_summary = peer_summary.merge(company_meta, on="company_standard", how="left")
+                peer_summary = peer_summary.sort_values("primas", ascending=False).reset_index(drop=True)
+                peer_summary["rank"] = peer_summary.index + 1
+                peer_summary["market_share"] = peer_summary["primas"].apply(lambda value: safe_divide(value, total_line_premium))
+                peer_summary["selected_company"] = peer_summary["company_standard"].eq(selected_company)
+                line_active_companies = peer_summary.loc[peer_summary["primas"] != 0, "company_standard"].nunique()
+                line_top5_concentration = safe_divide(peer_summary["primas"].head(5).sum(), total_line_premium)
+
+                line_market_bridge_scope = prepare_bridge_scope(
+                    technical_bridge_df,
+                    selected_years_scope,
+                    selected_month_cutoff,
+                    company="TODAS",
+                    line=selected_line,
+                ) if is_formato_290_core and not technical_bridge_df.empty else pd.DataFrame()
+                line_market_bridge_scope = filter_real_lob_rows(line_market_bridge_scope)
+                line_market_bridge_snapshot = (
+                    line_market_bridge_scope[line_market_bridge_scope["year"] == snapshot_year].copy()
+                    if snapshot_year is not None and not line_market_bridge_scope.empty
+                    else line_market_bridge_scope.copy()
+                )
+                bridge_by_company = summarize_bridge(
+                    line_market_bridge_snapshot,
+                    ["company_name_clean", "company_display_name", "company_short_name"],
+                ) if not line_market_bridge_snapshot.empty else pd.DataFrame()
+                if not bridge_by_company.empty:
+                    peer_summary = peer_summary.merge(
+                        bridge_by_company[
+                            [
+                                "company_name_clean",
+                                "ceded_premium",
+                                "retained_premium",
+                                "cession_ratio",
+                                "retention_ratio",
+                                "technical_result",
+                                "technical_result_ratio",
+                            ]
+                        ],
+                        left_on="company_standard",
+                        right_on="company_name_clean",
+                        how="left",
+                    ).drop(columns=["company_name_clean"], errors="ignore")
+
+                selected_peer = peer_summary[peer_summary["company_standard"] == selected_company]
+                if selected_company == "TODAS" or selected_peer.empty:
+                    selected_rank = None
+                    selected_market_share = None if selected_company != "TODAS" else 1.0
+                    selected_ceded = selected_retained = selected_cession = selected_technical = selected_technical_ratio = None
+                    selected_context_name = "Selected line market"
+                else:
+                    selected_row = selected_peer.iloc[0]
+                    selected_rank = int(selected_row.get("rank")) if pd.notna(selected_row.get("rank")) else None
+                    selected_market_share = selected_row.get("market_share")
+                    selected_ceded = selected_row.get("ceded_premium")
+                    selected_retained = selected_row.get("retained_premium")
+                    selected_cession = selected_row.get("cession_ratio")
+                    selected_technical = selected_row.get("technical_result")
+                    selected_technical_ratio = selected_row.get("technical_result_ratio")
+                    selected_context_name = selected_row.get("company_short_name") or selected_company
+
+                if selected_company == "TODAS":
+                    line_bridge_total = summarize_bridge(line_market_bridge_snapshot, []) if not line_market_bridge_snapshot.empty else pd.DataFrame()
+                    line_bridge_row = line_bridge_total.iloc[0] if not line_bridge_total.empty else {}
+                    selected_written_premium = total_line_premium
+                    selected_claims_ratio = line_claims_ratio
+                    selected_ceded = line_bridge_row.get("ceded_premium") if line_bridge_row is not None else None
+                    selected_retained = line_bridge_row.get("retained_premium") if line_bridge_row is not None else None
+                    selected_cession = line_bridge_row.get("cession_ratio") if line_bridge_row is not None else None
+                    selected_technical = line_bridge_row.get("technical_result") if line_bridge_row is not None else None
+                    selected_technical_ratio = line_bridge_row.get("technical_result_ratio") if line_bridge_row is not None else None
+
+                render_section_header("Selected Line Snapshot", f"{selected_context_name} in {selected_line} - {snapshot_label}.")
+                kpi_row_1 = st.columns(4)
+                with kpi_row_1[0]:
+                    render_metric_card("Written Premium", format_millions(selected_written_premium), "Selected company and line" if selected_company != "TODAS" else "Selected line market")
+                with kpi_row_1[1]:
+                    render_metric_card("Market Share in Selected Line", format_percentage(selected_market_share), "Company share within the line" if selected_company != "TODAS" else "Full line market")
+                with kpi_row_1[2]:
+                    rank_text = f"#{selected_rank}" if selected_rank else "N/A"
+                    render_metric_card("Ranking Position", rank_text, "By written premium in selected line")
+                with kpi_row_1[3]:
+                    render_metric_card(CLAIMS_PREMIUM_RATIO_LABEL_EN, format_percentage(selected_claims_ratio), "Uses absolute signed claims movement")
+                kpi_row_2 = st.columns(4)
+                with kpi_row_2[0]:
+                    render_metric_card("Ceded Premium", format_millions(selected_ceded), "Usable with warning")
+                with kpi_row_2[1]:
+                    render_metric_card("Cession Ratio", format_percentage(selected_cession), "Basis under review")
+                with kpi_row_2[2]:
+                    render_metric_card("Retained Premium", format_millions(selected_retained), "Usable with warning")
+                with kpi_row_2[3]:
+                    render_metric_card("Technical Result", format_millions(selected_technical), "UC14 / Subcuenta 999")
+
+                with st.expander("Technical Result note", expanded=False):
+                    st.write(
+                        "Technical Result comes from Formato 290 UC14 / Subcuenta 999. A negative value reflects the technical account result reported for the selected company, line and period. It is not automatically equivalent to final company profit/loss."
+                    )
+                    if selected_line == "TERREMOTO" and selected_technical is not None and pd.notna(selected_technical) and selected_technical < 0:
+                        st.write(
+                            "Negative results in catastrophe lines may reflect technical accounting movements, expenses, reinsurance, reserves or limited premium volume, not necessarily a recent catastrophic event."
+                        )
+
+                if selected_company != "TODAS":
+                    render_section_header("Company vs Market Benchmark", "How the selected company compares with the selected line market.")
+                    benchmark_cols = st.columns(5)
+                    with benchmark_cols[0]:
+                        render_metric_card("Company Premium", format_millions(selected_written_premium), "Selected company")
+                    with benchmark_cols[1]:
+                        render_metric_card("Line Market Premium", format_millions(total_line_premium), "All companies")
+                    with benchmark_cols[2]:
+                        render_metric_card("Company Claims Ratio", format_percentage(selected_claims_ratio), "Selected company")
+                    with benchmark_cols[3]:
+                        render_metric_card("Line Average Claims Ratio", format_percentage(line_claims_ratio), "All companies")
+                    with benchmark_cols[4]:
+                        render_metric_card("Technical Result Ratio", format_percentage(selected_technical_ratio), "Denominator under review")
+
+                render_section_header("Peer Comparison Table", "Companies writing the selected line, ranked by written premium.")
+                peer_display = peer_summary.copy()
+                peer_display["selected"] = peer_display["selected_company"].map(lambda value: "Selected" if value else "")
+                for money_col in ["primas", "siniestros", "ceded_premium", "retained_premium", "technical_result"]:
+                    if money_col in peer_display.columns:
+                        peer_display[money_col] = peer_display[money_col].map(format_millions)
+                for ratio_col in ["market_share", "siniestralidad", "cession_ratio", "retention_ratio", "technical_result_ratio"]:
+                    if ratio_col in peer_display.columns:
+                        peer_display[ratio_col] = peer_display[ratio_col].map(format_percentage)
+                peer_cols = [
+                    "rank",
+                    "selected",
+                    "company_short_name",
+                    "company_display_name",
+                    "primas",
+                    "market_share",
+                    "siniestralidad",
+                    "ceded_premium",
+                    "cession_ratio",
+                    "retained_premium",
+                    "technical_result",
+                    "technical_result_ratio",
+                ]
+                render_dataframe(peer_display[[col for col in peer_cols if col in peer_display.columns]].head(25), width="stretch")
+
+                render_section_header("Evolution of Selected Company in Selected Line", f"Trends for {selected_context_name} - {comparison_context_label}.")
+                selected_evolution_df = line_df.copy() if selected_company != "TODAS" else line_market_df.copy()
+                selected_summary = prepare_premium_claims_summary(selected_evolution_df, ["year"])
+                selected_summary["primas_mm"] = selected_summary["primas"] / 1_000_000
+                line_market_summary = prepare_premium_claims_summary(line_market_df, ["year"])
+                market_share_evolution = selected_summary[["year", "primas", "siniestralidad"]].merge(
+                    line_market_summary[["year", "primas"]].rename(columns={"primas": "market_primas"}),
+                    on="year",
+                    how="left",
+                )
+                market_share_evolution["market_share"] = market_share_evolution.apply(lambda row: safe_divide(row["primas"], row["market_primas"]), axis=1)
+
+                evo_cols = st.columns(2)
+                with evo_cols[0]:
+                    fig_line_premium = px.line(
+                        selected_summary,
+                        x="year",
+                        y="primas_mm",
+                        markers=True,
+                        title="Written Premium evolution",
+                        labels={"year": "Year", "primas_mm": "COP MM"},
+                    )
+                    fix_year_axis(fig_line_premium, selected_summary["year"].unique())
+                    st.plotly_chart(fig_line_premium, width="stretch")
+                with evo_cols[1]:
+                    fig_market_share = px.line(
+                        market_share_evolution,
+                        x="year",
+                        y="market_share",
+                        markers=True,
+                        title="Market Share evolution in selected line",
+                        labels={"year": "Year", "market_share": "Market Share"},
+                    )
+                    fix_year_axis(fig_market_share, market_share_evolution["year"].unique())
+                    fig_market_share.update_yaxes(tickformat=".1%")
+                    st.plotly_chart(fig_market_share, width="stretch")
+
+                evo_cols_2 = st.columns(2)
+                with evo_cols_2[0]:
+                    fig_claims_ratio = px.line(
+                        selected_summary,
+                        x="year",
+                        y="siniestralidad",
+                        markers=True,
+                        title=f"{CLAIMS_PREMIUM_RATIO_LABEL_EN} evolution",
+                        labels={"year": "Year", "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_EN},
+                    )
+                    fix_year_axis(fig_claims_ratio, selected_summary["year"].unique())
+                    fig_claims_ratio.update_yaxes(tickformat=".1%")
+                    st.plotly_chart(fig_claims_ratio, width="stretch")
+                with evo_cols_2[1]:
+                    selected_bridge_scope = prepare_bridge_scope(
+                        technical_bridge_df,
+                        selected_years_scope,
+                        selected_month_cutoff,
+                        company=selected_company,
+                        line=selected_line,
+                    ) if is_formato_290_core and not technical_bridge_df.empty else pd.DataFrame()
+                    if selected_company == "TODAS":
+                        selected_bridge_scope = line_market_bridge_scope.copy()
+                    selected_bridge_scope = filter_real_lob_rows(selected_bridge_scope)
+                    if not selected_bridge_scope.empty:
+                        bridge_year = summarize_bridge(selected_bridge_scope, ["year"])
+                        bridge_year["technical_result_mm"] = bridge_year["technical_result"] / 1_000_000
+                        fig_tech_evo = px.line(
+                            bridge_year,
+                            x="year",
+                            y="technical_result_mm",
+                            markers=True,
+                            title="Technical Result evolution",
+                            labels={"year": "Year", "technical_result_mm": "COP MM"},
+                        )
+                        fix_year_axis(fig_tech_evo, bridge_year["year"].unique())
+                        st.plotly_chart(fig_tech_evo, width="stretch")
+                    else:
+                        st.info("Technical Result evolution is not available for this selection.")
+
+                if not selected_bridge_scope.empty:
+                    bridge_year = summarize_bridge(selected_bridge_scope, ["year"])
+                    bridge_year["ceded_mm"] = bridge_year["ceded_premium"] / 1_000_000
+                    re_evo = bridge_year.melt(
+                        id_vars=["year"],
+                        value_vars=["ceded_mm", "cession_ratio"],
+                        var_name="metric",
+                        value_name="value",
+                    )
+                    re_evo["metric"] = re_evo["metric"].map({"ceded_mm": "Ceded Premium (COP MM)", "cession_ratio": "Cession Ratio"})
+                    fig_re_evo = px.line(
+                        re_evo,
+                        x="year",
+                        y="value",
+                        color="metric",
+                        markers=True,
+                        title="Ceded Premium and Cession Ratio evolution",
+                        labels={"year": "Year", "value": "Value", "metric": "Metric"},
+                    )
+                    fix_year_axis(fig_re_evo, re_evo["year"].unique())
+                    st.plotly_chart(fig_re_evo, width="stretch")
+
+                render_section_header("Line Market Structure", "Compact market structure context for the selected line.")
+                structure_cols = st.columns([1, 2])
+                with structure_cols[0]:
+                    render_metric_card("Top 5 Concentration", format_percentage(line_top5_concentration), "Within selected line")
+                    render_metric_card("Active Companies", f"{line_active_companies:,}", "Non-zero written premium")
+                with structure_cols[1]:
+                    top10 = peer_summary.head(10).sort_values("primas", ascending=True).copy()
+                    top10["primas_mm"] = top10["primas"] / 1_000_000
+                    fig_top10 = px.bar(
+                        top10,
+                        y="company_short_name",
+                        x="primas_mm",
+                        orientation="h",
+                        title="Top 10 companies by written premium in selected line",
+                        labels={"company_short_name": "Company", "primas_mm": "COP MM"},
+                        hover_data={"company_display_name": True, "market_share": ":.1%"},
+                    )
+                    st.plotly_chart(fig_top10, width="stretch")
     except Exception as exc:
         render_section_error(exc)
 
 # ============================================================
-# TAB 4 — COMPANY BRIEF
+# TAB 4 â€” COMPANY BRIEF
 # ============================================================
 
 if selected_view == "Company Brief":
@@ -1524,7 +2433,7 @@ if selected_view == "Company Brief":
             duplicate_snapshot_labels = {
                 "selected year",
                 "premium",
-                "claims / premiums",
+                "Incurred Claims / Written Premium",
                 "market position",
                 "market share",
                 "recent growth",
@@ -1610,7 +2519,7 @@ if selected_view == "Company Brief":
                         width="stretch",
                     )
 
-                render_section_header("Technical Performance", "Premium, claims and claims-to-premium ratio evolution.")
+                render_section_header("Technical Performance", "Premium, claims and incurred-claims-to-written-premium ratio evolution.")
                 premium_evolution = brief["premium_evolution"].copy()
                 if not premium_evolution.empty:
                     premium_evolution["primas_display"] = premium_evolution["primas"].map(format_millions)
@@ -1646,7 +2555,7 @@ if selected_view == "Company Brief":
                         width="stretch"
                     )
 
-                render_section_header("Portfolio Mix", "Top lines, portfolio share, Claims / Premiums and growth.")
+                render_section_header("Portfolio Mix", "Top lines, portfolio share, Incurred Claims / Written Premium and growth.")
                 st.caption(brief.get("portfolio_interpretation", "Not enough data available for portfolio interpretation."))
                 portfolio_display = brief.get("portfolio_mix", pd.DataFrame()).copy()
                 if portfolio_display.empty:
@@ -1699,7 +2608,7 @@ if selected_view == "Company Brief":
                             x="year",
                             y="siniestralidad",
                             markers=True,
-                            title="Claims / Premiums evolution",
+                            title="Incurred Claims / Written Premium evolution",
                             labels={"year": "Year", "siniestralidad": CLAIMS_PREMIUM_RATIO_LABEL_EN},
                         )
                         fix_year_axis(fig_ratio, evolution_chart["year"].unique())
@@ -1722,7 +2631,7 @@ if selected_view == "Company Brief":
                         )
                         st.plotly_chart(fig_portfolio_mix, width="stretch")
 
-                render_section_header("Growth Signals", "Lines with material growth or changing Claims / Premiums.")
+                render_section_header("Growth Signals", "Lines with material growth or changing Incurred Claims / Written Premium.")
                 growth_display = brief.get("growth_signals", pd.DataFrame()).copy()
                 if growth_display.empty:
                     st.info("Data not available")
@@ -1744,7 +2653,7 @@ if selected_view == "Company Brief":
                         width="stretch"
                     )
 
-                render_section_header("Claims / Premiums Watch", "Lines with deteriorating analytical claims-to-premium ratio.")
+                render_section_header("Incurred Claims / Written Premium Watch", "Lines with deteriorating analytical incurred-claims-to-written-premium ratio.")
                 deterioration_display = brief["deteriorating_loss_ratio_lines"].copy()
                 if deterioration_display.empty:
                     st.info("Data not available")
@@ -1754,7 +2663,7 @@ if selected_view == "Company Brief":
                     deterioration_display = deterioration_display.rename(
                         columns={
                             "siniestralidad_display": CLAIMS_PREMIUM_RATIO_LABEL_ES,
-                            "loss_ratio_change_display": "Change in Claims / Premiums",
+                            "loss_ratio_change_display": "Change in Incurred Claims / Written Premium",
                         }
                     )
                     render_dataframe(
@@ -1763,7 +2672,7 @@ if selected_view == "Company Brief":
                                 "line_of_business_standard",
                                 "year",
                                 CLAIMS_PREMIUM_RATIO_LABEL_ES,
-                                "Change in Claims / Premiums",
+                                "Change in Incurred Claims / Written Premium",
                             ]
                         ],
                         width="stretch"
@@ -1897,7 +2806,7 @@ if selected_view == "Company Brief":
 
             st.warning(
                 "Methodology note: this brief is generated from structured public market data. "
-                "Claims / Premiums is an analytical claims-to-premium ratio, not necessarily Fasecolda's "
+                "Incurred Claims / Written Premium is an analytical incurred-claims-to-written-premium ratio, not necessarily Fasecolda's "
                 "official technical loss ratio or combined ratio. Indicadores de Gestion 2025 remains "
                 "exploratory and figures should be validated before formal client or market use."
             )
@@ -1905,7 +2814,7 @@ if selected_view == "Company Brief":
         render_section_error(exc)
 
 # ============================================================
-# TAB 5 — AI BRIEF
+# TAB 5 â€” AI BRIEF
 # ============================================================
 
 if selected_view == "AI Brief":
@@ -2082,7 +2991,7 @@ if selected_view == "AI Brief":
 
         st.warning(
             "Guardrails: this brief uses internal structured app data only. It does not include external "
-            "news, ratings, financial statements, leadership/key people or live web search. Claims / Premiums "
+            "news, ratings, financial statements, leadership/key people or live web search. Incurred Claims / Written Premium "
             "is analytical, not necessarily official technical siniestralidad or combined ratio. Reinsurance "
             "indicators remain exploratory where source limitations apply."
         )
@@ -2090,7 +2999,7 @@ if selected_view == "AI Brief":
         render_section_error(exc)
 
 # ============================================================
-# TAB 6 — NEWS
+# TAB 6 â€” NEWS
 # ============================================================
 
 if selected_view == "News / External Intelligence":
@@ -2256,7 +3165,7 @@ if selected_view == "News / External Intelligence":
         render_section_error(exc)
 
 # ============================================================
-# TAB 7 — TECHNICAL SIGNALS
+# TAB 7 â€” TECHNICAL SIGNALS
 # ============================================================
 
 if selected_view == "Technical Signals":
@@ -2265,7 +3174,7 @@ if selected_view == "Technical Signals":
 
         render_section_header(
             "Technical Signals",
-            "Monitor growth, Claims / Premiums pressure, market share movement and reinsurance cession signals.",
+            "Monitor growth, Incurred Claims / Written Premium pressure, market share movement and reinsurance cession signals.",
         )
 
         latest_year = max(selected_years) if selected_years else country_df["year"].max()
@@ -2380,7 +3289,7 @@ if selected_view == "Technical Signals":
         col_a, col_b = st.columns(2)
 
         with col_a:
-            render_section_header(f"Highest Company {CLAIMS_PREMIUM_RATIO_LABEL_EN}", "Companies with the highest analytical claims-to-premium ratio above the selected threshold.")
+            render_section_header(f"Highest Company {CLAIMS_PREMIUM_RATIO_LABEL_EN}", "Companies with the highest analytical incurred-claims-to-written-premium ratio above the selected threshold.")
 
             company_lr = prepare_premium_claims_summary(filtered_df, ["company_standard"])
             company_lr = company_lr[company_lr["primas"] >= minimum_premium]
@@ -2409,7 +3318,7 @@ if selected_view == "Technical Signals":
                 )
 
         with col_b:
-            render_section_header(f"Highest Line {CLAIMS_PREMIUM_RATIO_LABEL_EN}", "Lines of business with the highest analytical claims-to-premium ratio above the selected threshold.")
+            render_section_header(f"Highest Line {CLAIMS_PREMIUM_RATIO_LABEL_EN}", "Lines of business with the highest analytical incurred-claims-to-written-premium ratio above the selected threshold.")
 
             line_lr = prepare_premium_claims_summary(filtered_df, ["line_of_business_standard"])
             line_lr = line_lr[line_lr["primas"] >= minimum_premium]
@@ -2482,7 +3391,7 @@ if selected_view == "Technical Signals":
 
 
 # ============================================================
-# TAB 6 — REINSURANCE VIEW
+# TAB 6 â€” REINSURANCE VIEW
 # ============================================================
 
 if selected_view == "Reinsurance View":
@@ -2491,6 +3400,10 @@ if selected_view == "Reinsurance View":
         indicadores_validation_df = load_indicadores_gestion_validation()
         indicadores_validation_flags_df = load_indicadores_gestion_validation_flags()
         pipeline_status = load_pipeline_status()
+        readiness_df = load_metric_readiness_matrix()
+        combined_readiness_df = load_combined_ratio_readiness()
+        bridge_summary_df = load_technical_bridge_summary()
+        formato_290_status = load_formato_290_status()
 
         render_section_header(
             "Reinsurance View",
@@ -2515,7 +3428,7 @@ if selected_view == "Reinsurance View":
                 value=True,
                 help=(
                     "Excluye ramos con lob_group = AGGREGATE en el mapping formal "
-                    "y totales como TOTAL DAÑOS, TOTAL PERSONAS y TOTAL SEGURIDAD SOCIAL."
+                    "y totales como TOTAL DAÃ‘OS, TOTAL PERSONAS y TOTAL SEGURIDAD SOCIAL."
                 )
             )
 
@@ -2564,7 +3477,7 @@ if selected_view == "Reinsurance View":
                     else:
                         st.info(
                             f"Compañía mapeada para Indicadores de Gestión: "
-                            f"'{selected_company}' → '{mapped_company}'."
+                            f"'{selected_company}' â†’ '{mapped_company}'."
                         )
 
             if selected_line != "TODOS":
@@ -2592,7 +3505,7 @@ if selected_view == "Reinsurance View":
                         )
                     else:
                         st.info(
-                            f"Ramo mapeado para Indicadores de Gestión: '{selected_line}' → '{mapped_line}'."
+                            f"Ramo mapeado para Indicadores de Gestión: '{selected_line}' â†’ '{mapped_line}'."
                         )
 
             aggregate_metric_rows = int(re_df["is_aggregate_lob"].sum()) if not re_df.empty else 0
@@ -2822,6 +3735,7 @@ if selected_view == "Reinsurance View":
             if by_line is None or by_line.empty:
                 st.warning("No line-level reinsurance indicators are available for this selection.")
             else:
+                by_line = filter_real_lob_rows(by_line)
                 line_chart = by_line.head(15).copy()
                 line_chart["ceded_mm"] = line_chart["reinsurance_ceded_premium"] / 1_000_000
                 fig_re_line = px.bar(
@@ -2987,7 +3901,7 @@ if selected_view == "Reinsurance View":
             st.markdown("### Detailed reinsurance rankings")
 
             lob_summary = (
-                re_wide.groupby("line_of_business_standard", as_index=False)
+                filter_real_lob_rows(re_wide).groupby("line_of_business_standard", as_index=False)
                 .agg(
                     gross_written_premium=("gross_written_premium", "sum"),
                     retained_premium=("retained_premium", "sum"),
@@ -3186,7 +4100,7 @@ if selected_view == "Reinsurance View":
 
 
 # ============================================================
-# TAB 7 — DATA STATUS
+# TAB 7 â€” DATA STATUS
 # ============================================================
 
 if selected_view == "Data Status":
@@ -3196,6 +4110,9 @@ if selected_view == "Data Status":
         indicadores_validation_df = load_indicadores_gestion_validation()
         indicadores_validation_flags_df = load_indicadores_gestion_validation_flags()
         pipeline_status = load_pipeline_status()
+        readiness_df = load_metric_readiness_matrix()
+        combined_readiness_df = load_combined_ratio_readiness()
+        bridge_summary_df = load_technical_bridge_summary()
 
         render_section_header(
             "Data Governance Status",
@@ -3214,6 +4131,186 @@ if selected_view == "Data Status":
             st.write("- Automatic updates: not enabled.")
             st.write("- Candidate database promotion: manual approval only.")
             st.write("- Recommended next step: run controlled monthly updates using the maintenance runbook, then review production scheduling with IT/Data.")
+
+        render_section_header(
+            "Official Colombia Source - SFC Formato 290",
+            "Status of the Datos Abiertos Colombia source-of-truth migration.",
+        )
+        if formato_290_status.get("available"):
+            latest_290 = pd.to_datetime(formato_290_status.get("latest_period"), errors="coerce")
+            validation_counts = formato_290_status.get("validation_counts", {}) or {}
+            f290_a, f290_b, f290_c, f290_d = st.columns(4)
+            with f290_a:
+                render_metric_card("Main source", "SFC Formato 290", "Datos Abiertos Colombia ID e967-4a8r")
+            with f290_b:
+                render_metric_card("Latest period", latest_290.strftime("%d/%m/%Y") if pd.notna(latest_290) else "N/A")
+            with f290_c:
+                render_metric_card("Rows downloaded", f"{formato_290_status.get('raw_rows') or 0:,}", "Raw API rows")
+            with f290_d:
+                render_metric_card("Validation", formato_290_status.get("validation_status", "N/A"), "PASS / WARNING / FAIL")
+
+            f290_e, f290_f, f290_g, f290_h = st.columns(4)
+            with f290_e:
+                render_metric_card("Clean rows", f"{formato_290_status.get('rows') or 0:,}", "Normalized long-form rows")
+            with f290_f:
+                render_metric_card("Core fact rows", f"{formato_290_status.get('fact_rows') or 0:,}", "Rows used by core dashboard")
+            with f290_g:
+                render_metric_card("Companies", f"{formato_290_status.get('companies') or 0:,}")
+            with f290_h:
+                render_metric_card("Ramos", f"{formato_290_status.get('ramos') or 0:,}")
+
+            f290_i, f290_j, f290_k, f290_l = st.columns(4)
+            with f290_i:
+                render_metric_card(
+                    "Core table",
+                    "Formato 290" if get_core_market_table_name() == "fact_market_core_formato_290" else "Fallback",
+                    "Dashboard source selection",
+                )
+            with f290_j:
+                render_metric_card("Validation PASS", f"{int(validation_counts.get('PASS', 0)):,}")
+            with f290_k:
+                render_metric_card("Validation WARNING", f"{int(validation_counts.get('WARNING', 0)):,}")
+            with f290_l:
+                render_metric_card("Extraction", formato_290_status.get("extraction_method") or "N/A")
+
+            f290_m, f290_n, f290_o, f290_p = st.columns(4)
+            with f290_m:
+                render_metric_card("Available years", "2023, 2024, 2025, 2026")
+            with f290_n:
+                render_metric_card(
+                    "Latest month",
+                    latest_290.strftime("%B %Y") if pd.notna(latest_290) else "N/A",
+                )
+            with f290_o:
+                render_metric_card("Comparison mode", comparison_mode)
+            with f290_p:
+                partial_text = "Yes" if is_formato_290_core and int(selected_month_cutoff or 12) < 12 else "No"
+                render_metric_card("Selected year partial", partial_text, comparison_context_label)
+
+            mapped_metrics = ", ".join(formato_290_status.get("mapped_metrics", [])) or "None"
+            pending_metrics = ", ".join(formato_290_status.get("pending_metrics", [])) or "None"
+            with st.expander("Formato 290 mapping status", expanded=False):
+                st.write(f"- Mapped metrics: {mapped_metrics}")
+                st.write(f"- Pending/unavailable concepts: {pending_metrics}")
+                st.write("- Dashboard written premium: direct written premium + accepted co-insurance + accepted reinsurance premium.")
+                st.write("- Dashboard claims: mapped incurred claims / technical account movement.")
+                st.write("- Ratios must be calculated from total mapped numerator / total mapped denominator, never by averaging ratios.")
+                st.write("- Period basis remains subject to business review before annualizing values.")
+                st.write(f"- Last ingestion timestamp: {formato_290_status.get('ingestion_timestamp') or 'N/A'}")
+            st.warning(
+                "Formato 290 period basis requires business confirmation before annualized growth or full-year comparisons are used."
+            )
+            st.warning(
+                "Negative claims ratios may reflect reserve/recovery/net technical movements and should not be interpreted as ordinary gross loss ratio without validation."
+            )
+            st.divider()
+            render_section_header(
+                "Methodology Review",
+                "Internal readiness status for Formato 290 insurance metrics before wider broker use.",
+            )
+            if readiness_df.empty:
+                st.warning(
+                    "Metric methodology readiness matrix is not available. Run "
+                    "`python scripts/build_formato_290_methodology_outputs.py`."
+                )
+            else:
+                status_counts = (
+                    readiness_df.groupby(["safe_for_dashboard", "requires_business_review"], as_index=False)
+                    .size()
+                    .rename(columns={"size": "metrics"})
+                )
+                method_col_a, method_col_b, method_col_c = st.columns(3)
+                with method_col_a:
+                    confirmed = readiness_df[
+                        (readiness_df["safe_for_dashboard"].astype(str).str.lower() == "yes")
+                        & (readiness_df["requires_business_review"].astype(str).str.lower() == "no")
+                    ]
+                    render_metric_card("Confirmed metrics", f"{len(confirmed):,}", "Directly supported for display")
+                with method_col_b:
+                    review_needed = readiness_df[
+                        readiness_df["requires_business_review"].astype(str).str.lower() == "yes"
+                    ]
+                    render_metric_card("Requires review", f"{len(review_needed):,}", "Available but method-sensitive")
+                with method_col_c:
+                    blocked = readiness_df[
+                        readiness_df["safe_for_dashboard"].astype(str).str.lower() == "no"
+                    ]
+                    render_metric_card("Do not show yet", f"{len(blocked):,}", "Not ready for dashboard use")
+
+                review_status = {
+                    "Written Premium": "PARTIAL - available, period basis review required",
+                    "Claims Methodology": "REQUIRES REVIEW - signed technical claims account",
+                    "Reinsurance": "PARTIAL - ceded/retained values available, ratio basis review required",
+                    "Commissions / Expenses": "PARTIAL - components available, ratio basis review required",
+                    "Technical Result": "CONFIRMED - official UC14 subtotal available",
+                    "Combined Ratio": "REQUIRES REVIEW - not ready for display",
+                    "Final Combined Ratio": "REQUIRES REVIEW - not ready for display",
+                }
+                render_dataframe(
+                    pd.DataFrame(
+                        [{"methodology_area": key, "status": value} for key, value in review_status.items()]
+                    ),
+                    width="stretch",
+                )
+                st.info(
+                    "Technical Result comes from Formato 290 UC14 / Subcuenta 999. A negative Technical Result "
+                    "means the selected company, line or market segment has a negative technical result on that "
+                    "technical reporting basis and period; it should not automatically be interpreted as final "
+                    "company profit or loss. Technical Result Ratio remains subject to business approval of the "
+                    "premium denominator."
+                )
+                with st.expander("Metric readiness matrix", expanded=False):
+                    display_cols = [
+                        "metric_name",
+                        "available_in_formato_290",
+                        "safe_for_dashboard",
+                        "requires_business_review",
+                        "recommended_label_english",
+                        "notes",
+                    ]
+                    render_dataframe(readiness_df[[col for col in display_cols if col in readiness_df.columns]], width="stretch")
+                if not combined_readiness_df.empty:
+                    render_section_header(
+                        "Combined Ratio / Technical Bridge",
+                        "Readiness assessment before any combined ratio is promoted to the main dashboard.",
+                    )
+                    bridge_col_a, bridge_col_b, bridge_col_c = st.columns(3)
+                    if not bridge_summary_df.empty:
+                        bridge_row = bridge_summary_df.iloc[0]
+                        diff_pct = bridge_row.get("weighted_difference_pct_candidate_2")
+                        near_exact_rows = bridge_row.get("near_exact_rows")
+                        with bridge_col_a:
+                            render_metric_card("Bridge rows", f"{int(bridge_row.get('rows', 0)):,}")
+                        with bridge_col_b:
+                            render_metric_card("Candidate 2 diff", format_percentage(diff_pct) if pd.notna(diff_pct) else "N/A")
+                        with bridge_col_c:
+                            render_metric_card("Near-exact rows", f"{int(near_exact_rows or 0):,}", "Difference <= COP 1")
+                    render_dataframe(
+                        combined_readiness_df[
+                            [
+                                "ratio_name",
+                                "readiness_status",
+                                "recommended_dashboard_use",
+                                "recommended_label_english",
+                                "warning_message",
+                            ]
+                        ],
+                        width="stretch",
+                    )
+                    st.info(
+                        "Technical bridge sample: outputs/reconciliation/formato_290_technical_bridge_sample.csv. "
+                        "Combined Ratio remains hidden unless bridge reconciliation and component methodology are approved."
+                    )
+                st.caption(
+                    "Methodology reference: docs/colombia_insurance_metric_methodology.md. "
+                    "Latest methodology review timestamp: " + run_time.strftime("%Y-%m-%d %H:%M")
+                )
+        else:
+            st.warning(
+                "Formato 290 has not been ingested into DuckDB yet. Core Colombia metrics are still using the "
+                "legacy Fasecolda snapshot as an explicit fallback. Run `python scripts/update_formato_290.py` "
+                "to create raw, clean, mart and validation tables from Datos Abiertos Colombia."
+            )
 
         render_section_header("Current Data Mode", "Static demo snapshot, manual pipeline metadata and source coverage.")
 
@@ -3270,7 +4367,11 @@ if selected_view == "Data Status":
         with col_j0:
             render_metric_card("Demo snapshot", "Static", "Streamlit Cloud branch")
         with col_k0:
-            render_metric_card("Primary source", "Ciudades y Ramos", "Fasecolda public data")
+            render_metric_card(
+                "Primary source",
+                "SFC Formato 290" if get_core_market_table_name() == "fact_market_core_formato_290" else "Ciudades y Ramos",
+                "Datos Abiertos Colombia" if get_core_market_table_name() == "fact_market_core_formato_290" else "Fasecolda public data",
+            )
         with col_l0:
             render_metric_card("Auto-update", "Manual only", "Phase 3 pipeline")
 
@@ -3315,11 +4416,10 @@ if selected_view == "Data Status":
         render_section_header("Methodology Limitations", "Core caveats users should keep in mind before using outputs formally.")
 
         st.info(
-            "Core market analytics use the latest available monthly cut for each year because "
-            "Fasecolda - Ciudades y Ramos files are cumulative period cuts. The extracted VALOR "
-            "field is treated as thousands of COP and converted to COP for KPIs, charts, briefs, "
-            "exports and technical signals. Data Status tables below show all loaded source records "
-            "for traceability."
+            "Core market analytics now prefer SFC Formato 290 when the official regulatory tables "
+            "are present in DuckDB. Formato 290 values are reported in pesos except Unidad de Captura "
+            "19, which is in COP millions, and Unidad de Captura 20, which is in units. The dashboard "
+            "does not apply the old Fasecolda thousands-of-COP conversion to Formato 290 records."
         )
 
         st.warning(
@@ -3329,11 +4429,9 @@ if selected_view == "Data Status":
         )
 
         st.warning(
-            "Methodology note: Claims / Premiums shown in the app is an analytical claims/premiums ratio. "
-            "It should not be interpreted as Fasecolda's official technical loss ratio or combined "
-            "ratio unless specifically stated. SOAT should be reviewed carefully because Fasecolda's "
-            "technical views may include methodological components not captured by a simple "
-            "claims/premiums ratio."
+            "Methodology note: the claims ratio shown in the app is an analytical incurred-claims-over-written-premium "
+            "technical movement ratio. It should not be interpreted as ordinary gross siniestralidad, "
+            "official technical loss ratio, or combined ratio unless specifically reconciled."
         )
 
         render_section_header("Data Sources", "Core and complementary sources currently available to the app.")
@@ -3350,7 +4448,7 @@ if selected_view == "Data Status":
         )
 
         source_summary["status"] = "Core regional principal"
-        source_summary["usage"] = "Primas, siniestros, ratio siniestros / primas, compañías, ramos, ciudades"
+        source_summary["usage"] = "Prima escrita, siniestros incurridos, resultado técnico, reaseguro, compañías y ramos"
 
         # Agregar fuente complementaria de Indicadores de Gestión si está cargada
         if "indicadores_df" in globals() and not indicadores_df.empty:
@@ -3382,10 +4480,9 @@ if selected_view == "Data Status":
         render_dataframe(source_summary, width="stretch")
 
         st.info(
-            "La fuente principal del core regional es Fasecolda - Ciudades y Ramos. "
-            "Indicadores de Gestión 2025 se está usando como fuente complementaria exploratoria "
-            "para la Reinsurance View y requiere validación metodológica antes de integrarse "
-            "al core regional principal."
+            "La fuente principal del core Colombia es SFC Formato 290 cuando la tabla regulatoria "
+            "está disponible. Indicadores de Gestión 2025 se mantiene como fuente complementaria "
+            "exploratoria y requiere validación metodológica antes de cualquier uso formal."
         )
 
         render_section_header("Mappings Loaded", "Formal mapping tables used for source-to-standard names.")
@@ -3434,8 +4531,8 @@ if selected_view == "Data Status":
         )
 
         metric_name_display = {
-            "gross_written_premium": "Primas",
-            "claims": "Siniestros",
+            "gross_written_premium": "Written Premium (Direct + Accepted)",
+            "claims": "Incurred Claims / Technical Movement",
             "reinsurance_ceded_premium": "Cesión al reaseguro",
             "technical_result": "Resultado técnico",
             "net_result": "Resultado neto",
@@ -3524,7 +4621,7 @@ if selected_view == "Data Status":
         render_section_error(exc)
 
 # ============================================================
-# TAB 8 — REPORTS / EXPORT
+# TAB 8 â€” REPORTS / EXPORT
 # ============================================================
 
 if selected_view == "Reports / Export":
@@ -3762,7 +4859,7 @@ if selected_view == "Reports / Export":
                 )
 
         st.warning(
-            "Export methodology: Claims / Premiums is analytical and not necessarily official technical "
+            "Export methodology: Incurred Claims / Written Premium is analytical and not necessarily official technical "
             "siniestralidad or combined ratio. Reinsurance indicators are exploratory. External intelligence "
             "is curated/manual and may be empty. Validate figures before formal client or market presentations."
         )
@@ -3770,7 +4867,7 @@ if selected_view == "Reports / Export":
         render_section_error(exc)
 
 # ============================================================
-# TAB 9 — DATA TABLE
+# TAB 9 â€” DATA TABLE
 # ============================================================
 
 if selected_view == "Data Table":
@@ -3800,3 +4897,4 @@ if selected_view == "Data Table":
         )
     except Exception as exc:
         render_section_error(exc)
+

@@ -2,9 +2,9 @@
 
 ## Current Phase
 
-**Phase 5A - UX / Visual Polish For Internal v1**
+**Source-of-truth migration - SFC Formato 290 foundation**
 
-The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal broker testing. The current focus is polishing navigation, wording, visual hierarchy, empty states, Data Status readability, and Reports / Export usability so the product feels presentation-ready for an internal treaty broking team.
+The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal broker testing. The current focus is correcting the Colombia data foundation by adding an official SFC Formato 290 ingestion, validation and reconciliation workflow.
 
 ## Design Principle
 
@@ -30,14 +30,41 @@ The Colombia MVP is deployed as a Streamlit Cloud demo for limited internal brok
 | Phase 3B | Candidate database review and promotion readiness | Completed in this branch | Compares candidate DuckDB against stable demo DB and blocks promotion unless review recommends it. |
 | Phase 4 | Broker-focused refinements | Completed in this branch | Phase 4A improved Company Brief; Phase 4B improved Reinsurance View; Phase 4C connects AI Brief to internal structured data; Phase 4D adds curated/manual external intelligence; Phase 4E adds broker reports and exports; Phase 4F adds operational readiness. |
 | Phase 5A | UX / visual polish for internal v1 | Completed in this branch | Improves header, navigation wording, module headers, empty states, Data Status readability and export usability without changing calculations. |
+| Source migration | SFC Formato 290 pipeline | In progress | Adds Datos Abiertos Colombia dataset `e967-4a8r` ingestion, raw/clean/mart tables, validation outputs, reconciliation template and Data Status visibility. |
 | Phase 5B | Controlled external AI module | Planned | Future LLM outputs must be grounded in structured data and approved sources. |
 | Phase 6 | Live company news module | Planned | Future source-based live news retrieval with approved provider configuration. |
 
 ## Current Sources
 
+### SFC Formato 290 / Datos Abiertos Colombia
+
+Status: target source of truth for Colombia core market metrics.
+
+Dataset:
+
+- Name: Informacion estadistica y financiera por ramos de seguros Formato 290.
+- Dataset ID: `e967-4a8r`.
+- Provider: Superintendencia Financiera de Colombia.
+- API: `https://www.datos.gov.co/resource/e967-4a8r.json`.
+
+Used for after ingestion and validation:
+
+- Premium bases.
+- Claims bases.
+- Commissions/intermediation if mapped.
+- Technical result if mapped.
+- Ramo/company/period coverage.
+- Future core market dashboard metrics.
+
+Limitations:
+
+- Concept mapping requires business review.
+- Period basis must be confirmed before annualizing values.
+- Reconciliation against official reference values is required before formal use.
+
 ### Fasecolda - Ciudades y Ramos
 
-Status: core source for the Colombia MVP.
+Status: legacy fallback until Formato 290 is ingested and validated.
 
 Used for:
 

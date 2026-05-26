@@ -143,6 +143,10 @@ def inject_global_css() -> None:
 
         .metric-card {{
             margin-bottom: 10px;
+            min-height: 132px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
         }}
 
         .metric-card-label {{
@@ -152,6 +156,9 @@ def inject_global_css() -> None:
             text-transform: uppercase;
             letter-spacing: 0.04em;
             margin-bottom: 8px;
+            min-height: 2.15rem;
+            display: flex;
+            align-items: flex-start;
         }}
 
         .metric-card-value {{
@@ -161,12 +168,17 @@ def inject_global_css() -> None:
             line-height: 1.18;
             white-space: normal;
             overflow-wrap: anywhere;
+            margin: 2px 0;
+            min-height: 2.8rem;
+            display: flex;
+            align-items: center;
         }}
 
         .metric-card-help {{
             color: var(--muted);
             font-size: 0.78rem;
-            margin-top: 8px;
+            margin-top: auto;
+            min-height: 1.05rem;
         }}
 
         .section-heading {{
@@ -369,11 +381,11 @@ def format_field_label(label: object) -> str:
 
     normalized = raw.strip().replace("/", " / ")
     known = {
-        "claims_premiums": "Claims / Premiums",
-        "claims_to_premium": "Claims / Premiums",
-        "claims_to_premium_ratio": "Claims / Premiums",
-        "siniestralidad": "Claims / Premiums",
-        "gross_written_premium": "Gross Written Premium",
+        "claims_premiums": "Incurred Claims / Written Premium",
+        "claims_to_premium": "Incurred Claims / Written Premium",
+        "claims_to_premium_ratio": "Incurred Claims / Written Premium",
+        "siniestralidad": "Incurred Claims / Written Premium",
+        "gross_written_premium": "Written Premium (Direct + Accepted)",
         "reinsurance_ceded_premium": "Reinsurance Ceded Premium",
         "reinsurance_cession_ratio": "Reinsurance Cession Ratio",
         "retention_ratio": "Retention Ratio",

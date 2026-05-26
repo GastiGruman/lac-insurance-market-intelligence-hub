@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import re
@@ -317,7 +317,7 @@ def build_ai_brief_context(
     else:
         broker_questions = [
             "Which companies should be prioritized for a deeper treaty conversation?",
-            "Which lines show the most material premium and Claims / Premiums movement?",
+            "Which lines show the most material premium and Incurred Claims / Written Premium movement?",
             "Where should source data be validated before formal external use?",
         ]
 
@@ -350,7 +350,7 @@ def build_ai_brief_context(
         "methodology_notes": [
             "The brief uses internal structured data from the app database and app-calculated summaries.",
             "Primary source: Fasecolda - Ciudades y Ramos.",
-            "Claims / Premiums is an analytical claims-to-premium ratio, not necessarily official technical siniestralidad or combined ratio.",
+            "Incurred Claims / Written Premium is an analytical incurred-claims-to-written-premium ratio, not necessarily official technical siniestralidad or combined ratio.",
             "Reinsurance indicators use Fasecolda - Indicadores de Gestion 2025 where available and remain exploratory.",
         ],
         "limitations": [
@@ -365,7 +365,7 @@ def _brief_focus_sentence(brief_type: str) -> str:
     focus = {
         "Pre-meeting company brief": "Focus on company position, competitors, portfolio priorities and meeting questions.",
         "Reinsurance discussion brief": "Focus on cession, retention, ceded premium and treaty discussion angles.",
-        "Portfolio review brief": "Focus on line concentration, growth, Claims / Premiums and technical signals.",
+        "Portfolio review brief": "Focus on line concentration, growth, Incurred Claims / Written Premium and technical signals.",
         "Market comparison brief": "Focus on market position, company ranking and competitor benchmark.",
         "Internal strategy brief": "Focus on where a treaty broker may add value through analysis, capacity discussion and source validation.",
     }
@@ -428,7 +428,7 @@ def generate_ai_brief_from_context(context: dict) -> str:
         f"**Source period:** latest available selected year {latest_year}.",
         "",
         "## 1. Executive Summary",
-        f"- Based on available structured data, the selected scope shows premium of {format_millions(premium)} and Claims / Premiums of {format_percentage(claims_ratio)}.",
+        f"- Based on available structured data, the selected scope shows premium of {format_millions(premium)} and Incurred Claims / Written Premium of {format_percentage(claims_ratio)}.",
         f"- Market leader context: {competitors.get('market_leader_summary', 'Data not available')}.",
         f"- Portfolio focus: {portfolio.get('top_line_summary', 'Data not available')}.",
         f"- Reinsurance angle: {re_text}",
@@ -443,7 +443,7 @@ def generate_ai_brief_from_context(context: dict) -> str:
             [
                 f"- Market share: {format_percentage(market_position.get('market_share'))}.",
                 f"- Premium rank: {market_position.get('rank', 'N/A')} of {market_position.get('company_count', 'N/A')} companies in the selected market.",
-                f"- Company Claims / Premiums: {format_percentage(market_position.get('company_claims_premiums'))}; selected market Claims / Premiums: {format_percentage(market_position.get('market_claims_premiums'))}.",
+                f"- Company Incurred Claims / Written Premium: {format_percentage(market_position.get('company_claims_premiums'))}; selected market Incurred Claims / Written Premium: {format_percentage(market_position.get('market_claims_premiums'))}.",
             ]
         )
     else:
@@ -460,7 +460,7 @@ def generate_ai_brief_from_context(context: dict) -> str:
         for row in top_lines[:5]:
             lines.append(
                 f"- {row.get('line_of_business_standard')}: premium {format_millions(row.get('primas'))}, "
-                f"portfolio share {format_percentage(row.get('portfolio_share'))}, Claims / Premiums {format_percentage(row.get('siniestralidad'))}."
+                f"portfolio share {format_percentage(row.get('portfolio_share'))}, Incurred Claims / Written Premium {format_percentage(row.get('siniestralidad'))}."
             )
     else:
         lines.append("- Line-level portfolio data is not available under the selected filters.")
@@ -492,7 +492,7 @@ def generate_ai_brief_from_context(context: dict) -> str:
         [
             "",
             "## 6. Broker Talking Points",
-            "- Use observed premium, Claims / Premiums, portfolio concentration and reinsurance behavior as discussion prompts, not final conclusions.",
+            "- Use observed premium, Incurred Claims / Written Premium, portfolio concentration and reinsurance behavior as discussion prompts, not final conclusions.",
             "- Prioritize validation of any figure that will be used in a formal client, market, actuarial or financial presentation.",
             "- Separate observed data from interpretation when discussing technical movement.",
             "",
@@ -554,7 +554,7 @@ def answer_ai_brief_question(question: str, context: dict) -> str:
         for row in top[:8]:
             lines.append(
                 f"- {row.get('company_standard')}: premium {format_millions(row.get('primas'))}, "
-                f"market share {format_percentage(row.get('market_share'))}, Claims / Premiums {format_percentage(row.get('siniestralidad'))}."
+                f"market share {format_percentage(row.get('market_share'))}, Incurred Claims / Written Premium {format_percentage(row.get('siniestralidad'))}."
             )
         return "\n".join(lines)
 
@@ -566,10 +566,10 @@ def answer_ai_brief_question(question: str, context: dict) -> str:
         for row in top_lines[:6]:
             lines.append(
                 f"- {row.get('line_of_business_standard')}: premium {format_millions(row.get('primas'))}, "
-                f"share {format_percentage(row.get('portfolio_share'))}, Claims / Premiums {format_percentage(row.get('siniestralidad'))}."
+                f"share {format_percentage(row.get('portfolio_share'))}, Incurred Claims / Written Premium {format_percentage(row.get('siniestralidad'))}."
             )
         if "SOAT" in q_norm:
-            lines.append("- SOAT caution: compare carefully with official technical views because methodology may differ from the app's analytical Claims / Premiums ratio.")
+            lines.append("- SOAT caution: compare carefully with official technical views because methodology may differ from the app's analytical Incurred Claims / Written Premium ratio.")
         return "\n".join(lines)
 
     if any(token in q_norm for token in ["QUESTION", "PREGUNTA", "ASK", "MEETING", "REUNION"]):
@@ -711,9 +711,9 @@ def answer_ask_data(
                 f"- Company premiums: {format_millions(company_premium)}.\n"
                 f"- Selected market premiums: {format_millions(market_premium)}.\n"
                 f"- Market share: {format_percentage(share)}.\n"
-                f"- Company Claims / Premiums ratio: {format_percentage(company_lr)}.\n"
-                f"- Selected market Claims / Premiums ratio: {format_percentage(market_lr)}.\n"
-                "Note: this is an analytical claims-to-premium ratio, not necessarily Fasecolda's official technical loss ratio or combined ratio."
+                f"- Company Incurred Claims / Written Premium ratio: {format_percentage(company_lr)}.\n"
+                f"- Selected market Incurred Claims / Written Premium ratio: {format_percentage(market_lr)}.\n"
+                "Note: this is an analytical incurred-claims-to-written-premium ratio, not necessarily Fasecolda's official technical loss ratio or combined ratio."
             ),
         }
 
@@ -721,7 +721,7 @@ def answer_ask_data(
         re_wide = build_reinsurance_wide(indicadores_df, country)
         if re_wide.empty:
             return {"answered": True, "answer": "Data not available: reinsurance table is not loaded."}
-        if any(token in q_norm for token in ["COMPAN", "COMPANIA", "COMPAÑIA"]):
+        if any(token in q_norm for token in ["COMPAN", "COMPANIA", "COMPAÃ‘IA"]):
             group_col = "company_standard"
             label = "companies"
         else:
@@ -762,7 +762,7 @@ def answer_ask_data(
             "answer": (
                 f"Five meeting questions for {company} based on the selected data:\n"
                 "- What explains the latest premium movement versus the prior available year?\n"
-                "- Which lines are driving claims-to-premium pressure or improvement?\n"
+                "- Which lines are driving incurred-claims-to-written-premium pressure or improvement?\n"
                 "- Are growth targets aligned with underwriting discipline and pricing actions?\n"
                 "- Where could reinsurance limits, retention, reinstatements, or exclusions be reviewed?\n"
                 "- What data should be validated before using this analysis in a client discussion?\n"
@@ -777,3 +777,4 @@ def answer_ask_data(
             "Try asking about premium growth, company comparison, cession ratio, or meeting questions."
         ),
     }
+

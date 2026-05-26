@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime
 from io import BytesIO
@@ -14,7 +14,7 @@ from src.broker_analytics import (
 
 
 METHODOLOGY_NOTE = (
-    "Claims / Premiums is an analytical claims-to-premium ratio and is not necessarily "
+    "Incurred Claims / Written Premium is an analytical incurred-claims-to-written-premium ratio and is not necessarily "
     "Fasecolda's official technical siniestralidad or combined ratio. Reinsurance indicators "
     "are exploratory where source limitations apply. External news is curated/manual and may "
     "be empty. Validate outputs before formal client or market presentations."
@@ -238,7 +238,7 @@ def build_market_summary_markdown(filtered_df: pd.DataFrame, metadata: dict, min
 ## Market Metrics
 - Latest selected year: {latest.get("year", "N/A") if isinstance(latest, pd.Series) else "N/A"}
 - Total premiums: {format_millions(latest.get("primas") if isinstance(latest, pd.Series) else pd.NA)}
-- Claims / Premiums: {format_percentage(latest.get("siniestralidad") if isinstance(latest, pd.Series) else pd.NA)}
+- Incurred Claims / Written Premium: {format_percentage(latest.get("siniestralidad") if isinstance(latest, pd.Series) else pd.NA)}
 
 ## Top Companies
 {_bullet_list(top_companies)}
@@ -272,11 +272,11 @@ def build_broker_one_pager_markdown(
 {_bullet_list(snapshot_lines, "Use the AI Brief and Market Summary for this selected scope.")}
 
 ## What Changed?
-- Review premium movement, Claims / Premiums and portfolio mix under the selected filters.
+- Review premium movement, Incurred Claims / Written Premium and portfolio mix under the selected filters.
 - Use the full AI Brief for a broader internal-data interpretation.
 
 ## What Matters For A Broker?
-- Focus on market position, portfolio concentration, Claims / Premiums movement and reinsurance discussion angles.
+- Focus on market position, portfolio concentration, Incurred Claims / Written Premium movement and reinsurance discussion angles.
 - Validate source figures before using them formally.
 
 ## Reinsurance Discussion Angles
@@ -319,5 +319,6 @@ def build_ppt_ready_bullets(
         bullets.append(f"Broker question: {question}")
     if not bullets:
         bullets.append("Selected scope: use market summary and filtered data exports for meeting preparation.")
-    bullets.append("Methodology: validate figures before formal use; Claims / Premiums is analytical.")
+    bullets.append("Methodology: validate figures before formal use; Incurred Claims / Written Premium is analytical.")
     return "\n".join(f"- {bullet}" for bullet in bullets[:10])
+

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime
 from html import escape
@@ -7,8 +7,8 @@ import pandas as pd
 
 
 DISPLAY_COLUMN_NAMES = {
-    "siniestralidad": "Claims / Premiums",
-    "loss_ratio_change": "Change in Claims / Premiums",
+    "siniestralidad": "Incurred Claims / Written Premium",
+    "loss_ratio_change": "Change in Incurred Claims / Written Premium",
 }
 
 
@@ -50,7 +50,7 @@ def prepare_premium_claims_summary(data: pd.DataFrame, group_cols: list[str]) ->
     )
 
     summary = premiums.merge(claims, on=group_cols, how="left")
-    summary["siniestros"] = summary["siniestros"].fillna(0)
+    summary["siniestros"] = summary["siniestros"].fillna(0).abs()
     summary["siniestralidad"] = summary["siniestros"] / summary["primas"].replace({0: pd.NA})
     return summary
 
@@ -204,7 +204,7 @@ def calculate_company_growth_signals(portfolio_mix: pd.DataFrame) -> pd.DataFram
     signals.loc[
         (signals["premium_growth"] >= 0.2) & (signals["claims_premiums_change"] > 0.05),
         "growth_signal",
-    ] = "Growth with worsening Claims / Premiums"
+    ] = "Growth with worsening Incurred Claims / Written Premium"
     return signals.sort_values(["premium_growth", "claims_premiums_change"], ascending=False).head(5)
 
 
@@ -236,9 +236,9 @@ def calculate_company_technical_alerts(
         alerts.append(
             {
                 "severity": "High" if company_ratio > market_ratio + 0.20 else "Medium",
-                "title": "Claims / Premiums above market",
+                "title": "Incurred Claims / Written Premium above market",
                 "explanation": (
-                    f"{company} shows Claims / Premiums of {format_percentage(company_ratio)} versus "
+                    f"{company} shows Incurred Claims / Written Premium of {format_percentage(company_ratio)} versus "
                     f"selected market level of {format_percentage(market_ratio)} in {latest_year}."
                 ),
                 "follow_up": "Ask which lines or reserving/pricing actions explain the gap versus market.",
@@ -289,9 +289,9 @@ def calculate_company_technical_alerts(
             alerts.append(
                 {
                     "severity": "Medium",
-                    "title": f"Worsening Claims / Premiums in {row['line_of_business_standard']}",
+                    "title": f"Worsening Incurred Claims / Written Premium in {row['line_of_business_standard']}",
                     "explanation": (
-                        f"Claims / Premiums increased by {format_percentage(row['claims_premiums_change'])} "
+                        f"Incurred Claims / Written Premium increased by {format_percentage(row['claims_premiums_change'])} "
                         "versus the prior available year."
                     ),
                     "follow_up": "Ask whether the movement reflects claims frequency/severity, pricing, mix, or source effects.",
@@ -385,11 +385,11 @@ def generate_broker_meeting_questions(
     market_ratio = market_position.get("market_claims_premiums", pd.NA)
     if pd.notna(company_ratio) and pd.notna(market_ratio):
         questions.append(
-            f"How does {company} interpret Claims / Premiums of {format_percentage(company_ratio)} "
+            f"How does {company} interpret Incurred Claims / Written Premium of {format_percentage(company_ratio)} "
             f"versus the selected market at {format_percentage(market_ratio)}?"
         )
     else:
-        questions.append("Is the current Claims / Premiums trend aligned with pricing and underwriting actions?")
+        questions.append("Is the current Incurred Claims / Written Premium trend aligned with pricing and underwriting actions?")
 
     if not portfolio_mix.empty and pd.notna(portfolio_mix.iloc[0].get("portfolio_share", pd.NA)):
         top = portfolio_mix.iloc[0]
@@ -617,7 +617,7 @@ def build_company_brief(
 
     executive_summary = (
         f"{company} in {country} wrote {format_millions(latest_premium)} in premiums in {latest_year} "
-        f"for {line_scope}, with claims of {format_millions(latest_claims)} and a claims-to-premium ratio of "
+        f"for {line_scope}, with claims of {format_millions(latest_claims)} and a incurred-claims-to-written-premium ratio of "
         f"{format_percentage(latest_lr)}. Premium growth versus the prior available year was "
         f"{format_percentage(premium_growth)}. Main lines by premium were {top_lines_text}."
     )
@@ -653,7 +653,7 @@ def build_company_brief(
     broker_angle = (
         questions[0]
         if questions
-        else "Review premium movement, Claims / Premiums, portfolio mix and reinsurance needs."
+        else "Review premium movement, Incurred Claims / Written Premium, portfolio mix and reinsurance needs."
     )
     executive_snapshot = [
         {"label": "Selected year", "value": str(latest_year), "detail": "Latest available year in current filters"},
@@ -662,7 +662,7 @@ def build_company_brief(
         {"label": "Market share", "value": format_percentage(market_position.get("market_share", pd.NA)), "detail": "Company premium / selected market premium"},
         {"label": "Portfolio focus", "value": top_line_label, "detail": "Largest selected line by premium"},
         {"label": "Recent growth", "value": format_percentage(premium_growth), "detail": "Premium growth vs prior available year"},
-        {"label": "Claims / Premiums", "value": format_percentage(latest_lr), "detail": ratio_signal},
+        {"label": "Incurred Claims / Written Premium", "value": format_percentage(latest_lr), "detail": ratio_signal},
         {"label": "Broker angle", "value": "Review", "detail": broker_angle},
     ]
 
@@ -796,8 +796,8 @@ def render_company_brief_markdown(
 ## Premium Evolution
 {_markdown_table(company_summary, ["year", "primas", "siniestros", "siniestralidad", "premium_growth"])}
 
-## Claims / Premiums Evolution
-Claims / Premiums is an analytical ratio calculated as claims divided by gross written premium. It is not necessarily Fasecolda's official technical loss ratio, technical siniestralidad, or combined ratio.
+## Incurred Claims / Written Premium Evolution
+Incurred Claims / Written Premium is an analytical ratio calculated as claims divided by gross written premium. It is not necessarily Fasecolda's official technical loss ratio, technical siniestralidad, or combined ratio.
 
 ## Market Share
 {_markdown_table(market_share, ["year", "primas", "market_primas", "market_share"])}
@@ -810,7 +810,7 @@ Portfolio interpretation: {portfolio_interpretation_text}
 ## Fastest Growing Lines
 {_markdown_table(fastest_lines, ["line_of_business_standard", "year", "primas", "premium_growth"])}
 
-## Lines With Deteriorating Claims / Premiums
+## Lines With Deteriorating Incurred Claims / Written Premium
 {_markdown_table(deteriorating_lines, ["line_of_business_standard", "year", "siniestralidad", "loss_ratio_change"])}
 
 ## Reinsurance Indicators
@@ -845,7 +845,7 @@ def render_one_pager_markdown(brief: dict, company: str, country: str) -> str:
         kpi_text = (
             f"- Premiums: {format_millions(row['primas'])}\n"
             f"- Claims: {format_millions(row['siniestros'])}\n"
-            f"- Claims / Premiums: {format_percentage(row['siniestralidad'])}\n"
+            f"- Incurred Claims / Written Premium: {format_percentage(row['siniestralidad'])}\n"
             f"- Premium growth: {format_percentage(row['premium_growth'])}"
         )
 
@@ -1298,12 +1298,12 @@ def build_technical_signals(
             .iterrows()
         ):
             add_signal(
-                "Highest claims-to-premium companies",
+                "Highest incurred-claims-to-written-premium companies",
                 row["siniestralidad"],
                 row["year"],
                 row["company_standard"],
                 "All selected lines",
-                "Company analytical claims-to-premium ratio is among the highest under current filters.",
+                "Company analytical incurred-claims-to-written-premium ratio is among the highest under current filters.",
                 "Fasecolda - Ciudades y Ramos",
             )
 
@@ -1352,12 +1352,12 @@ def build_technical_signals(
             .iterrows()
         ):
             add_signal(
-                "Lines with increasing claims-to-premium ratio",
+                "Lines with increasing incurred-claims-to-written-premium ratio",
                 row["loss_ratio_change"],
                 row["year"],
                 "Market",
                 row["line_of_business_standard"],
-                "Analytical claims-to-premium ratio increased versus prior available year.",
+                "Analytical incurred-claims-to-written-premium ratio increased versus prior available year.",
                 "Fasecolda - Ciudades y Ramos",
             )
 
@@ -1408,9 +1408,9 @@ def build_technical_signals(
     watchlist = signal_df[
         signal_df["signal_type"].isin(
             [
-                "Highest claims-to-premium companies",
+                "Highest incurred-claims-to-written-premium companies",
                 "Companies losing market share",
-                "Lines with increasing claims-to-premium ratio",
+                "Lines with increasing incurred-claims-to-written-premium ratio",
                 "Companies with high cession ratio",
             ]
         )
@@ -1453,3 +1453,4 @@ def reinsurance_summary_csv(indicadores_df: pd.DataFrame, country: str) -> str:
     summary["reinsurance_cession_ratio"] = summary["reinsurance_ceded_premium"] / summary["gross_written_premium"].replace({0: pd.NA})
     summary["retention_ratio"] = summary["retained_premium"] / summary["gross_written_premium"].replace({0: pd.NA})
     return summary.to_csv(index=False, encoding="utf-8-sig")
+

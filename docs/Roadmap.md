@@ -94,6 +94,20 @@ Focus:
 - Convert Reinsurance View into a treaty-broker preparation page.
 - Add executive reinsurance snapshot, company vs market benchmark, reinsurance by line, evolution, treaty signals and broker questions.
 - Keep reinsurance indicators grounded in Fasecolda - Indicadores de Gestion 2025 and mapping tables.
+
+## Source-of-truth migration - SFC Formato 290
+
+Status: in progress.
+
+Goals:
+
+- Use Datos Abiertos Colombia dataset `e967-4a8r` as the official Colombia source of truth.
+- Download all rows via API pagination.
+- Create raw, clean and mart DuckDB tables.
+- Map premium, claims, commission, reinsurance and technical result concepts transparently.
+- Validate whether loss ratio can use incurred claims over earned premium.
+- Reconcile dashboard outputs against official reference values before formal rollout.
+- Keep Fasecolda snapshot only as an explicit fallback until migration is validated.
 - Preserve the exploratory methodology warning until the source is fully validated for production use.
 - Leave AI-generated interpretation to a later controlled AI phase.
 
