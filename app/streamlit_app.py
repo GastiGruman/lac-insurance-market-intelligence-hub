@@ -80,6 +80,10 @@ configure_plotly_theme()
 
 APP_NAME = "LAC Insurance Market Intelligence Hub"
 COUNTRY_MODULE = "Colombia country module"
+BUILD_VERSION = "Formato 290 broker analytics v2"
+EXPECTED_BRANCH = "demo-streamlit-cloud"
+EXPECTED_COMMIT_MARKER = "0344ed9"
+UI_MARKER = "month-cutoff-comparison-mode"
 USE_CANDIDATE_DB = os.getenv("USE_CANDIDATE_DB", "false").strip().lower() in {"1", "true", "yes", "y"}
 DB_PATH = (
     Path("data/database/insurance_market_candidate.duckdb")
@@ -1540,6 +1544,10 @@ with st.sidebar.expander("About this tool", expanded=False):
     st.write("AI Brief: internal-data deterministic mode.")
     st.write(f"Database mode: {'Candidate local test' if USE_CANDIDATE_DB else 'Stable demo'}.")
     st.write("Modules: Market Intelligence, Broker Preparation, Reinsurance, Outputs and Governance.")
+    st.markdown("**Build version:** Formato 290 broker analytics v2")
+    st.write("Branch expected: demo-streamlit-cloud")
+    st.write("Commit marker: 0344ed9")
+    st.write("UI marker: month-cutoff-comparison-mode")
 
 with st.sidebar.expander("Data context", expanded=False):
     st.write(f"Coverage: {selected_country}.")
@@ -4131,6 +4139,16 @@ if selected_view == "Data Status":
             st.write("- Automatic updates: not enabled.")
             st.write("- Candidate database promotion: manual approval only.")
             st.write("- Recommended next step: run controlled monthly updates using the maintenance runbook, then review production scheduling with IT/Data.")
+
+        with st.expander("Deployment diagnostics", expanded=False):
+            st.write(f"- build_version = {BUILD_VERSION}")
+            st.write(f"- expected_branch = {EXPECTED_BRANCH}")
+            st.write(f"- expected_commit_marker = {EXPECTED_COMMIT_MARKER}")
+            st.write("- app_file = app/streamlit_app.py")
+            st.write("- data_source_expected = Formato 290 / Datos Abiertos e967-4a8r")
+            st.write("- expected_filters = Year, Month cutoff, Comparison mode, Company, Line of business")
+            st.write("- city_filter_expected = removed")
+            st.write(f"- ui_marker = {UI_MARKER}")
 
         render_section_header(
             "Official Colombia Source - SFC Formato 290",
