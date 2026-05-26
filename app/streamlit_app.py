@@ -85,10 +85,28 @@ EXPECTED_BRANCH = "demo-streamlit-cloud"
 EXPECTED_COMMIT_MARKER = "0344ed9"
 UI_MARKER = "month-cutoff-comparison-mode"
 USE_CANDIDATE_DB = os.getenv("USE_CANDIDATE_DB", "false").strip().lower() in {"1", "true", "yes", "y"}
-DB_PATH = (
-    Path("data/database/insurance_market_candidate.duckdb")
-    if USE_CANDIDATE_DB
-    else Path("data/database/insurance_market.duckdb")
+CLOUD_DB_PATH = Path("data/database/insurance_market_cloud.duckdb")
+CANDIDATE_DB_PATH = Path("data/database/insurance_market_candidate.duckdb")
+DEFAULT_DB_PATH = Path("data/database/insurance_market.duckdb")
+IS_STREAMLIT_CLOUD = (
+    bool(os.getenv("STREAMLIT_SHARING_MODE"))
+    or bool(os.getenv("STREAMLIT_CLOUD"))
+    or Path("/mount/src").exists()
+    or os.getenv("HOME", "").replace("\\", "/").startswith("/home/appuser")
+)
+USE_CLOUD_DB = os.getenv("USE_CLOUD_DB", "false").strip().lower() in {"1", "true", "yes", "y"}
+if USE_CANDIDATE_DB:
+    DB_PATH = CANDIDATE_DB_PATH
+elif CLOUD_DB_PATH.exists() and (IS_STREAMLIT_CLOUD or USE_CLOUD_DB):
+    DB_PATH = CLOUD_DB_PATH
+else:
+    DB_PATH = DEFAULT_DB_PATH
+DB_MODE_LABEL = (
+    "candidate local test"
+    if DB_PATH == CANDIDATE_DB_PATH
+    else "cloud compact"
+    if DB_PATH == CLOUD_DB_PATH
+    else "stable full local"
 )
 VALIDATION_REPORT_PATH = Path("outputs/market_core_validation_report.csv")
 INDICADORES_VALIDATION_REPORT_PATH = Path("outputs/indicadores_gestion_2025_validation_report.csv")
@@ -327,19 +345,43 @@ def load_formato_290_status():
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
             ).fetchdf()["table_name"].tolist()
         )
-        if "clean_formato_290" not in tables:
+        if "clean_formato_290" in tables:
+            latest = conn.execute("SELECT MAX(period_date) FROM clean_formato_290").fetchone()[0]
+            rows = conn.execute("SELECT COUNT(*) FROM clean_formato_290").fetchone()[0]
+            companies = conn.execute("SELECT COUNT(DISTINCT company_standard) FROM clean_formato_290").fetchone()[0]
+            ramos = conn.execute("SELECT COUNT(DISTINCT ramo_standard) FROM clean_formato_290").fetchone()[0]
+            raw_rows = conn.execute("SELECT COUNT(*) FROM raw_formato_290").fetchone()[0] if "raw_formato_290" in tables else None
+            fact_rows = conn.execute("SELECT COUNT(*) FROM fact_market_core_formato_290").fetchone()[0] if "fact_market_core_formato_290" in tables else None
+            ingestion = None
+            extraction_method = None
+            database_mode = DB_MODE_LABEL
+            if "raw_formato_290" in tables:
+                ingestion = conn.execute("SELECT MAX(ingestion_timestamp) FROM raw_formato_290").fetchone()[0]
+                extraction_method = conn.execute("SELECT MAX(extraction_method) FROM raw_formato_290").fetchone()[0]
+        elif "formato_290_cloud_metadata" in tables:
+            metadata = conn.execute("SELECT * FROM formato_290_cloud_metadata LIMIT 1").fetchdf()
+            row = metadata.iloc[0].to_dict() if not metadata.empty else {}
+            latest = row.get("latest_period")
+            rows = row.get("clean_rows")
+            companies = row.get("companies")
+            ramos = row.get("ramos")
+            raw_rows = row.get("raw_rows")
+            fact_rows = row.get("fact_rows")
+            ingestion = row.get("ingestion_timestamp")
+            extraction_method = row.get("extraction_method")
+            database_mode = row.get("database_mode") or DB_MODE_LABEL
+        elif "fact_market_core_formato_290" in tables:
+            latest = conn.execute("SELECT MAX(period_date) FROM fact_market_core_formato_290").fetchone()[0]
+            rows = None
+            companies = conn.execute("SELECT COUNT(DISTINCT company_standard) FROM fact_market_core_formato_290").fetchone()[0]
+            ramos = conn.execute("SELECT COUNT(DISTINCT line_of_business_standard) FROM fact_market_core_formato_290").fetchone()[0]
+            raw_rows = None
+            fact_rows = conn.execute("SELECT COUNT(*) FROM fact_market_core_formato_290").fetchone()[0]
+            ingestion = None
+            extraction_method = "compact fact fallback"
+            database_mode = DB_MODE_LABEL
+        else:
             return {"available": False}
-        latest = conn.execute("SELECT MAX(period_date) FROM clean_formato_290").fetchone()[0]
-        rows = conn.execute("SELECT COUNT(*) FROM clean_formato_290").fetchone()[0]
-        companies = conn.execute("SELECT COUNT(DISTINCT company_standard) FROM clean_formato_290").fetchone()[0]
-        ramos = conn.execute("SELECT COUNT(DISTINCT ramo_standard) FROM clean_formato_290").fetchone()[0]
-        raw_rows = conn.execute("SELECT COUNT(*) FROM raw_formato_290").fetchone()[0] if "raw_formato_290" in tables else None
-        fact_rows = conn.execute("SELECT COUNT(*) FROM fact_market_core_formato_290").fetchone()[0] if "fact_market_core_formato_290" in tables else None
-        ingestion = None
-        extraction_method = None
-        if "raw_formato_290" in tables:
-            ingestion = conn.execute("SELECT MAX(ingestion_timestamp) FROM raw_formato_290").fetchone()[0]
-            extraction_method = conn.execute("SELECT MAX(extraction_method) FROM raw_formato_290").fetchone()[0]
         validation_status = "Not validated"
         validation_counts = {}
         if "validation_formato_290" in tables:
@@ -372,6 +414,8 @@ def load_formato_290_status():
             "ramos": ramos,
             "ingestion_timestamp": ingestion,
             "extraction_method": extraction_method,
+            "database_mode": database_mode,
+            "database_path": str(DB_PATH),
             "validation_status": validation_status,
             "validation_counts": validation_counts,
             "mapped_metrics": mapped_metrics,
@@ -1318,6 +1362,8 @@ PAGE_OPTIONS = [
 
 st.sidebar.markdown("## Filters & Info")
 st.sidebar.caption("Colombia Internal v1")
+st.sidebar.markdown(f"**Build:** {BUILD_VERSION}")
+st.sidebar.markdown(f"**DB mode:** {DB_MODE_LABEL}")
 
 country_options = sorted(analysis_df["country"].dropna().unique())
 if not country_options:
@@ -1542,7 +1588,8 @@ with st.sidebar.expander("About this tool", expanded=False):
     st.write("Data update mode: static snapshot / manual pipeline.")
     st.write("External news: curated/manual.")
     st.write("AI Brief: internal-data deterministic mode.")
-    st.write(f"Database mode: {'Candidate local test' if USE_CANDIDATE_DB else 'Stable demo'}.")
+    st.write(f"Database mode: {DB_MODE_LABEL}.")
+    st.write(f"Database file in use: {DB_PATH.as_posix()}.")
     st.write("Modules: Market Intelligence, Broker Preparation, Reinsurance, Outputs and Governance.")
     st.markdown("**Build version:** Formato 290 broker analytics v2")
     st.write("Branch expected: demo-streamlit-cloud")
@@ -4132,6 +4179,7 @@ if selected_view == "Data Status":
             "Phase 3 adds a manual-run Fasecolda ingestion pipeline, but the app does not execute "
             "that pipeline automatically on launch. Scheduled automation is a future deployment step."
         )
+        st.caption(f"Database file in use: {DB_PATH.as_posix()} ({DB_MODE_LABEL})")
 
         with st.expander("Operational maintenance status", expanded=False):
             st.write("- Data update mode: static demo snapshot.")
@@ -4149,6 +4197,8 @@ if selected_view == "Data Status":
             st.write("- expected_filters = Year, Month cutoff, Comparison mode, Company, Line of business")
             st.write("- city_filter_expected = removed")
             st.write(f"- ui_marker = {UI_MARKER}")
+            st.write(f"- database_file_in_use = {DB_PATH.as_posix()}")
+            st.write(f"- database_mode = {DB_MODE_LABEL}")
 
         render_section_header(
             "Official Colombia Source - SFC Formato 290",

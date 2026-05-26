@@ -23,6 +23,7 @@ Data/processed/
 # Allow only the demo DuckDB database for Streamlit Cloud
 data/database/*
 !data/database/insurance_market.duckdb
+!data/database/insurance_market_cloud.duckdb
 data/database/backups/
 data/database/*candidate*.duckdb
 data/database/*candidate*.duckdb.wal
@@ -30,6 +31,7 @@ data/database/*candidate*.duckdb.tmp
 
 Data/database/*
 !Data/database/insurance_market.duckdb
+!Data/database/insurance_market_cloud.duckdb
 Data/database/backups/
 Data/database/*candidate*.duckdb
 Data/database/*candidate*.duckdb.wal
@@ -43,7 +45,9 @@ Data/database/*candidate*.duckdb.tmp
 
 # But allow the specific demo database
 !data/database/insurance_market.duckdb
+!data/database/insurance_market_cloud.duckdb
 !Data/database/insurance_market.duckdb
+!Data/database/insurance_market_cloud.duckdb
 
 # Generated outputs
 outputs/
